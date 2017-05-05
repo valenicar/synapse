@@ -18,9 +18,14 @@ from synapse.common import *
 
 logger = logging.getLogger(__name__)
 
+tagre = re.compile(r'^([\w]+\.)*[\w]+$')
 guidre = re.compile('^[0-9a-f]{32}$')
+
 def isguid(text):
     return guidre.match(text) != None
+
+def istag(text):
+    return tagre.match(text) != None
 
 class DataType:
 
@@ -95,6 +100,30 @@ class DataType:
 
     def repr(self, valu):
         return valu
+
+class TagType(DataType):
+
+    def __init__(self, tlib, name, **info):
+        DataType.__init__(self, tlib, name, **info)
+
+    def norm(self, valu, oldval=None):
+        subs = {}
+
+        valu = valu.lower()
+        parts = valu.split('@',1)
+
+        if len(parts) == 2:
+            valu,timewind = parts
+
+            times = [ self.tlib.getTypeNorm('time',v)[0] for v in timewind.split(',') ]
+
+            subs['seen:min'] = min(times)
+            subs['seen:max'] = max(times)
+
+        if not istag(valu):
+            self._raiseBadValu(valu,mesg='disallowed chars in tag')
+
+        return valu,subs
 
 class GuidType(DataType):
 
@@ -511,8 +540,9 @@ class TypeLib:
         self.addType('comp',ctor='synapse.lib.types.CompType', doc='A multi-field composite type which generates a stable guid from normalized fields')
         self.addType('xref',ctor='synapse.lib.types.XrefType', doc='A multi-field composite type which can be used to link a known form to an unknown form')
 
+        self.addType('syn:tag', ctor='synapse.lib.types.TagType', doc='A dot separated tag hierarchy with optional timewindow')
+
         # add base synapse types
-        self.addType('syn:tag',subof='str', regex=r'^([\w]+\.)*[\w]+$', lower=1)
         self.addType('syn:prop',subof='str', regex=r'^([\w]+:)*([\w]+|\*)$', lower=1)
         self.addType('syn:type',subof='str', regex=r'^([\w]+:)*[\w]+$', lower=1)
         self.addType('syn:glob',subof='str', regex=r'^([\w]+:)*[\w]+:\*$', lower=1)

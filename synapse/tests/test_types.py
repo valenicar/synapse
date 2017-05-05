@@ -569,3 +569,25 @@ class DataTypesTest(SynTest):
             self.eq( len( core.eval('ou:org=$vertex')), 1 )
             self.eq( len( core.eval('ou:user:org=$vertex')), 1 )
 
+    def test_types_tag_subs(self):
+
+        tlib = s_types.TypeLib()
+
+        valu,subs = tlib.getTypeNorm('syn:tag','foo.bar')
+
+        self.eq( valu, 'foo.bar' )
+        self.none( subs.get('seen:min') )
+        self.none( subs.get('seen:max') )
+
+        valu,subs = tlib.getTypeNorm('syn:tag','foo.bar@2013')
+
+        self.eq( valu, 'foo.bar' )
+        self.eq( subs.get('seen:min'), 1356998400000 )
+        self.eq( subs.get('seen:max'), 1356998400000 )
+
+        valu,subs = tlib.getTypeNorm('syn:tag','foo.bar@2013,2014')
+
+        self.eq( valu, 'foo.bar' )
+        self.eq( subs.get('seen:min'), 1356998400000 )
+        self.eq( subs.get('seen:max'), 1388534400000 )
+

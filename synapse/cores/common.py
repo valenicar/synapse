@@ -128,6 +128,7 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin):
 
         # a cortex may have a ref to an axon
         self.axon = None
+        self.tagkeys = {}   # TODO maybe eventually make this a fixed cache
         self.seedctors = {}
 
         self.noauto = {'syn:form','syn:type','syn:prop'}
@@ -197,6 +198,7 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin):
         self.on('tufo:set', self._fireCoreSync )
         self.on('tufo:tag:add', self._fireCoreSync )
         self.on('tufo:tag:del', self._fireCoreSync )
+        self.on('tufo:tag:seen', self._fireCoreSync )
 
         #############################################################
         # Handlers for each core:sync inner message type
@@ -206,6 +208,7 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin):
         self.syncact.act('tufo:set', self._actSyncTufoSet )
         self.syncact.act('tufo:tag:add', self._actSyncTufoTagAdd )
         self.syncact.act('tufo:tag:del', self._actSyncTufoTagDel )
+        self.syncact.act('tufo:tag:seen', self._actSyncTufoTagSeen )
 
         #############################################################
 
@@ -859,6 +862,25 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin):
         tufo = self.formTufoByProp(form,valu=valu)
         self.addTufoTag(tufo,tag,asof=asof)
 
+    def _actSyncTufoTagSeen(self, mesg):
+
+        tag = mesg[1].get('tag')
+        tufo = mesg[1].get('tufo')
+
+        form = tufo[1].get('tufo:form')
+        valu = tufo[1].get(form)
+
+        node = self.formTufoByProp(form,valu=valu)
+        if node == None:
+            return
+
+        tagkey,minkey,maxkey = self._getTagKeys(form,tag)
+
+        mintime = tufo[1].get(minkey)
+        maxtime = tufo[1].get(maxkey)
+
+        self.addTufoTag(node,tag,mintime=mintime,maxtime=maxtime)
+
     def _actSyncTufoTagDel(self, mesg):
         tag = mesg[1].get('tag')
         tufo = mesg[1].get('tufo')
@@ -1503,7 +1525,23 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin):
         with self.getCoreXact():
             [ self.addTufoTag(tufo,tag,asof=asof) for tag in tags ]
 
-    def addTufoTag(self, tufo, tag, asof=None):
+    def _getTagKeys(self, form, tag):
+        ckey = (form,tag)
+        cval = self.tagkeys.get(ckey)
+
+        if cval == None:
+
+            cval = (
+                '*|%s|%s' % (form,tag),
+                '*min|%s|%s' % (form,tag),
+                '*max|%s|%s' % (form,tag),
+            )
+
+            self.tagkeys[ckey] = cval
+
+        return cval
+
+    def addTufoTag(self, tufo, tag, asof=None, mintime=None, maxtime=None):
         '''
         Add a tag to a tufo.
 
@@ -1513,26 +1551,65 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin):
             core.addTufoTag(tufo,'baz.faz')
 
         '''
-        reqiden(tufo)
+        tag,subs = self.getTypeNorm('syn:tag',tag)
+
+        tick = now()
+        if asof == None:
+            asof = tick
+
+        iden = reqiden(tufo)
         self._genTufoTag(tag)
 
-        rows = s_tags.genTufoRows(tufo,tag,valu=asof)
-        if rows:
+        form = tufo[1].get('tufo:form')
 
-            with self.getCoreXact() as xact:
+        mintime = subs.get('seen:min',mintime)
+        maxtime = subs.get('seen:max',maxtime)
 
-                formevt = 'tufo:tag:add:%s' % tufo[1].get('tufo:form')
+        tagkey,minkey,maxkey = self._getTagKeys(form,tag)
 
-                self.addRows(list(map(lambda tup: tup[1], rows)))
+        tagval = tufo[1].get(tagkey)
+        minval = tufo[1].get(minkey)
+        maxval = tufo[1].get(maxkey)
 
-                for subtag,(i,p,v,t) in rows:
-                    tufo[1][p] = v
-                    self._bumpTufoCache(tufo,p,None,v)
+        # these will both be None if the tag does not exist
+        movmax = maxval == None or (maxtime != None and maxval < maxtime)
+        movmin = minval == None or (mintime != None and minval > mintime)
 
-                    xact.fire('tufo:tag:add', tufo=tufo, tag=subtag, asof=asof)
-                    xact.fire(formevt, tufo=tufo, tag=subtag, asof=asof)
+        # try to short circuit the add as quickly as possible...
+        if not movmin and not movmax:
+            return tufo
 
-        return tufo
+        # at this point, the tag is either new or requires seen updates
+        with self.getCoreXact() as xact:
+
+            # if the tag is new, 
+            if tagval == None:
+
+                # if the tag is new, give the parent a shot as well...
+                parts = tag.rsplit('.',1)
+                if len(parts) > 1:
+                    tufo = self.addTufoTag(tufo,parts[0],asof=asof)
+
+                xact._setTufoKeyVal(tufo,tagkey,asof)
+
+                if mintime:
+                    xact._setTufoKeyVal(tufo,minkey,mintime)
+
+                if maxtime:
+                    xact._setTufoKeyVal(tufo,maxkey,maxtime)
+
+                xact.fire('tufo:tag:add', tufo=tufo, tag=tag)
+                return tufo
+
+            # at this point we are def moving a seen valu
+            if movmin:
+                xact._setTufoKeyVal(tufo,minkey,mintime)
+
+            if movmax:
+                xact._setTufoKeyVal(tufo,maxkey,maxtime)
+
+            xact.fire('tufo:tag:seen', tufo=tufo, tag=tag)
+            return tufo
 
     def delTufoTag(self, tufo, tag):
         '''
@@ -1544,29 +1621,63 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin):
             core.delTufoTag(tufo,'baz')
 
         '''
+        tag,subs = self.getTypeNorm('syn:tag',tag)
+
         iden = reqiden(tufo)
-        props = s_tags.getTufoSubs(tufo,tag)
+        form = tufo[1].get('tufo:form')
 
-        if props:
+        tagprop,minprop,maxprop = self._getTagKeys(form,tag)
 
-            with self.getCoreXact() as xact:
+        # bail as fast as possible if the tag isn't there...
+        if tufo[1].get(tagprop) == None:
+            return tufo
 
-                formevt = 'tufo:tag:del:%s' % tufo[1].get('tufo:form')
+        subs = s_tufo.tags(tufo,root=tag)
 
-                [ self.delRowsByIdProp(iden,prop) for prop in props ]
+        # enforce removing them depth first... (sigh...)
+        subs = sorted([ (len(s.split('.')),s) for s in subs ], reverse=True)
 
-                for p in props:
+        # we def have something to remove...
+        with self.getCoreXact() as xact:
 
-                    asof = tufo[1].pop(p,None)
-                    if asof == None:
-                        continue
+            for d,subt in subs:
+                self.delTufoTag(tufo,subt)
 
-                    self._bumpTufoCache(tufo,p,asof,None)
+            xact._setTufoKeyVal(tufo,tagprop,None)
 
-                    subtag = s_tags.choptag(p)
+            if tufo[1].get(minprop) != None:
+                xact._setTufoKeyVal(tufo,minprop,None)
 
-                    xact.fire('tufo:tag:del', tufo=tufo, tag=subtag)
-                    xact.fire(formevt, tufo=tufo, tag=subtag)
+            if tufo[1].get(maxprop) != None:
+                xact._setTufoKeyVal(tufo,maxprop,None)
+
+            xact.fire('tufo:tag:del', tufo=tufo, tag=tag)
+
+        #for d,subt in subs:
+            #self.delTufoTag(
+
+        #for tag in s_tufo.getSubTags(tufo,tag):
+
+        #if props:
+
+            #with self.getCoreXact() as xact:
+
+                #formevt = 'tufo:tag:del:%s' % tufo[1].get('tufo:form')
+
+                #[ self.delRowsByIdProp(iden,prop) for prop in props ]
+
+                #for p in props:
+
+                    #asof = tufo[1].pop(p,None)
+                    #if asof == None:
+                        #continue
+
+                    #self._bumpTufoCache(tufo,p,asof,None)
+
+                    #subtag = s_tags.choptag(p)
+
+                    #xact.fire('tufo:tag:del', tufo=tufo, tag=subtag)
+                    #xact.fire(formevt, tufo=tufo, tag=subtag)
 
         return tufo
 
@@ -1580,6 +1691,7 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin):
                 dostuff(tufo)
 
         '''
+        tag,subs = self.getTypeNorm('syn:tag',tag)
         prop = '*|%s|%s' % (form,tag)
         return self.getTufosByProp(prop,limit=limit)
 
@@ -2592,10 +2704,35 @@ class CoreXact:
         self.size = size
 
         self.refs = 0
+        self.tick = now()
         self.ready = False
         self.exiting = False
 
+        self.toadd = []
+        self.todel = []
+        self.toset = []
+
         self.events = []
+
+    def _setTufoKeyVal(self, tufo, name, valu):
+
+        oldv = tufo[1].get(name)
+
+        if valu == None:
+            tufo[1].pop(name,None)
+        else:
+            tufo[1][name] = valu
+
+        if oldv == None:
+            self.toadd.append( (tufo[0],name,valu,self.tick) )
+
+        elif valu == None:
+            self.todel.append( (tufo[0],name) )
+
+        else:
+            self.toset( (tufo[0],name,valu) )
+
+        self.core._bumpTufoCache(tufo,name,oldv,valu)
 
     def _coreXactAcquire(self):
         # allow implementors to acquire any synchronized resources
@@ -2634,6 +2771,18 @@ class CoreXact:
         '''
         Commit the results thus far ( without closing / releasing )
         '''
+        self.core.addRows( self.toadd )
+
+        for iden,name in self.todel:
+            self.core.delRowsByIdProp(iden,name)
+
+        for iden,name,valu in self.toset:
+            self.core.setRowsByIdProp(iden,name,valu)
+
+        self.toadd = []
+        self.todel = []
+        self.toset = []
+
         self._coreXactCommit()
 
     def fireall(self):

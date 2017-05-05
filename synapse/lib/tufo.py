@@ -39,8 +39,12 @@ def props(tufo,pref=None):
     plen = len(pref)
     return { p[plen:]:v for (p,v) in tufo[1].items() if p.startswith(pref) }
 
-def tags(tufo):
-    return [ p.split('|',2)[2] for p in tufo[1].keys() if p.startswith('*') ]
+def tags(tufo,root=None):
+    tags = [ p.split('|',2)[2] for p in tufo[1].keys() if p.startswith('*|') ]
+    if root:
+        tval = '%s.' % root
+        tags = [ t for t in tags if t.startswith(tval) ]
+    return tags
 
 def equal(tuf0,tuf1):
     '''
