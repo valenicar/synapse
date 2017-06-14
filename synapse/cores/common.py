@@ -394,7 +394,7 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin,s_ingest.IngestAp
         if isinstance(exc,SynErr):
             [ props.__setitem__('info:' + k, v) for (k,v) in exc.items() ]
 
-        self.addTufoEvent('syn:log', **props)
+        self.formTufoByProp('syn:log', None, **props)
 
     def addDataModel(self, name, modl):
         '''
@@ -1428,22 +1428,6 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin,s_ingest.IngestAp
         prop = '*|%s|%s' % (form,tag)
         return self.getTufosByProp(prop,limit=limit)
 
-    def addTufoEvent(self, form, **props):
-        '''
-        Add a "non-deconflicted" tufo by generating a guid
-
-        Example:
-
-            tufo = core.addTufoEvent('foo',bar=baz)
-
-        Notes:
-
-            If props contains a key "time" it will be used for
-            the cortex timestap column in the row storage.
-
-        '''
-        return self.addTufoEvents(form,(props,))[0]
-
     def addJsonText(self, form, text):
         '''
         Add and fully index a blob of JSON text.
@@ -1599,78 +1583,6 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin,s_ingest.IngestAp
 
         return props
 
-    def addTufoEvents(self, form, propss):
-        '''
-        Add a list of tufo events in bulk.
-
-        Example:
-
-            propss = [
-                {'foo':10,'bar':30},
-                {'foo':11,'bar':99},
-            ]
-
-            core.addTufoEvents('woot',propss)
-
-        '''
-
-        doneadd = set()
-        with self.getCoreXact() as xact:
-
-            ret = []
-            for chunk in chunked(1000,propss):
-
-                rows = []
-                tufos = []
-                splices = []
-
-                alladd = set()
-
-                for props in chunk:
-
-                    iden = guid()
-
-                    fulls,toadd = self._normTufoProps(form,props)
-
-                    self._addDefProps(form,fulls)
-
-                    fulls[form] = iden
-
-                    toadd = [ t for t in toadd if t not in doneadd ]
-
-                    alladd.update(toadd)
-                    doneadd.update(toadd)
-
-                    splices.append((form,iden,props))
-
-                    self.fire('tufo:form', form=form, valu=iden, props=fulls)
-                    self.fire('tufo:form:' + form, form=form, valu=iden, props=fulls)
-
-                    rows.extend([ (iden,p,v,xact.tick) for (p,v) in fulls.items() ])
-
-                    # sneaky ephemeral/hidden prop to identify newly created tufos
-                    fulls['.new'] = 1
-                    tufos.append( (iden,fulls) )
-
-                # add "toadd" nodes *first* (for tree/parent issues )
-                if self.autoadd:
-                    self._runAutoAdd(alladd)
-
-                self.addRows(rows)
-
-                # fire splice events
-                for form,valu,props in splices:
-                    xact.spliced('node:add', form=form, valu=valu, props=props)
-
-                for tufo in tufos:
-                    # fire notification events
-                    xact.fire('tufo:add', tufo=tufo)
-                    xact.fire('tufo:add:' + form, tufo=tufo)
-
-                ret.extend(tufos)
-
-        return ret
-
     def _runAutoAdd(self, toadd):
         for form,valu in toadd:
             if form in self.noauto:
@@ -1734,10 +1646,6 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin,s_ingest.IngestAp
 
             fulls,toadd = self._normTufoProps(prop,props)
 
-            # add "toadd" nodes *first* (for tree/parent issues )
-            if self.autoadd:
-                self._runAutoAdd(toadd)
-
             # create a "full" props dict which includes defaults
             self._addDefProps(prop,fulls)
 
@@ -1769,8 +1677,8 @@ class Cortex(EventBus,DataModel,Runtime,Configable,CortexMixin,s_ingest.IngestAp
 
             xact.spliced('node:add', form=prop, valu=valu, props=props)
 
-            #if self.autoadd:
-                #self._runAutoAdd(toadd)
+            if self.autoadd:
+                self._runAutoAdd(toadd)
 
         tufo[1]['.new'] = True
 

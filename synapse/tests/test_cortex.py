@@ -1195,22 +1195,6 @@ class CortexTest(SynTest):
         with s_cortex.openurl('ram://') as core:
             self.assertRaises( BadPropValu, core.formTufoByProp, 'foo:bar', True )
 
-    def test_cortex_events(self):
-        with s_cortex.openurl('ram://') as core:
-
-            tick = now()
-
-            tufo0 = core.addTufoEvent('foo', bar=10, baz='thing')
-
-            tock = now()
-
-            id0 = tufo0[0]
-            rows = core.getRowsById(id0)
-
-            self.assertEqual(len(rows), 4)
-            self.assertTrue(rows[0][-1] >= tick)
-            self.assertTrue(rows[0][-1] <= tock)
-
     def test_cortex_tlib_persistence(self):
         with self.getTestDir() as path:
 
