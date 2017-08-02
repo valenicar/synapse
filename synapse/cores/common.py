@@ -780,12 +780,14 @@ class Cortex(EventBus, DataModel, Runtime, Configable, s_ingest.IngestApi):
         self.delTufo(node)
 
     def _actNodePropSet(self, mesg):
+        print('PROP SET: %r' % (mesg,))
         form = mesg[1].get('form')
         valu = mesg[1].get('valu')
-        props = mesg[1].get('props')
+        prop = mesg[1].get('prop')
+        newv = mesg[1].get('newv')
 
         node = self.formTufoByProp(form, valu)
-        self.setTufoProps(node, **props)
+        self.setTufoProp(node, prop, newv)
 
     def _actNodePropDel(self, mesg):
         form = mesg[1].get('form')
@@ -2456,7 +2458,7 @@ class Cortex(EventBus, DataModel, Runtime, Configable, s_ingest.IngestApi):
             xact.fire('node:prop:del', form=form, valu=valu, prop=prop, oldv=oldv, node=tufo)
 
             # fire the splice event
-            xact.spliced('node:prop:del', form=form, valu=valu, prop=prop)
+            xact.spliced('node:prop:del', form=form, valu=valu, prop=prop, oldv=oldv)
 
         return tufo
 
@@ -2501,8 +2503,7 @@ class Cortex(EventBus, DataModel, Runtime, Configable, s_ingest.IngestApi):
 
                 # fire notification event
                 xact.fire('node:prop:set', form=form, valu=valu, prop=p, newv=v, oldv=oldv, node=tufo)
-
-            xact.spliced('node:prop:set', form=form, valu=valu, props=props)
+                xact.spliced('node:prop:set', form=form, valu=valu, prop=p, newv=v, oldv=oldv)
 
         return tufo
 
