@@ -9,14 +9,10 @@ import tornado.ioloop
 import tornado.httpserver
 
 import synapse.async as s_async
+import synapse.common as s_common
 import synapse.daemon as s_daemon
-import synapse.dyndeps as s_dyndeps
-import synapse.telepath as s_telepath
-import synapse.datamodel as s_datamodel
+import synapse.lib.config as s_config
 
-import synapse.lib.threads as s_threads
-
-from synapse.common import *
 from synapse.eventbus import EventBus
 
 # TODO:
@@ -36,19 +32,19 @@ class BaseHand(tornado.web.RequestHandler):
         func = self.globs.get('func')
 
         perm = self.globs.get('perm')
-        if perm != None:
+        if perm is not None:
 
-            iden = self.get_cookie('synsess',None)
-            if iden == None:
+            iden = self.get_cookie('synsess', None)
+            if iden is None:
                 # FIXME redirect to login? Other status?
-                self.sendHttpResp(403,{},'Forbidden')
+                self.sendHttpResp(403, {}, 'Forbidden')
                 return
 
-        kwargs = { k:v[0].decode('utf8') for (k,v) in self.request.arguments.items() }
+        kwargs = {k: v[0].decode('utf8') for (k, v) in self.request.arguments.items()}
         if self.request.body:
             kwargs['body'] = self.request.body
 
-        boss.initJob( task=(func,args,kwargs), ondone=self._onJobDone )
+        boss.initJob(task=(func, args, kwargs), ondone=self._onJobDone)
 
     @tornado.web.asynchronous
     def post(self, *args):
@@ -56,17 +52,17 @@ class BaseHand(tornado.web.RequestHandler):
         boss = self.globs.get('boss')
         func = self.globs.get('func')
 
-        kwargs = { k:v[0].decode('utf8') for (k,v) in self.request.arguments.items() }
+        kwargs = {k: v[0].decode('utf8') for (k, v) in self.request.arguments.items()}
         if self.request.body:
             kwargs['body'] = self.request.body
 
-        boss.initJob( task=(func,args,kwargs), ondone=self._onJobDone )
+        boss.initJob(task=(func, args, kwargs), ondone=self._onJobDone)
 
     def _fmtJobResp(self, job):
         """Format job results into a standard response envelope."""
         ret = {'status': 'ok'}
         err = job[1].get('err')
-        if err != None:
+        if err is not None:
             ret['status'] = 'err'
             ret['err'] = job[1].get('err')
         else:
@@ -79,15 +75,15 @@ class BaseHand(tornado.web.RequestHandler):
 
     def sendHttpResp(self, code, headers, content):
         loop = self.globs.get('loop')
-        loop.add_callback( self._sendHttpResp, code, headers, content)
+        loop.add_callback(self._sendHttpResp, code, headers, content)
 
     def _sendHttpResp(self, code, headers, retinfo):
         self.set_status(code)
-        [ self.set_header(k,v) for (k,v) in headers.items() ]
+        [self.set_header(k, v) for (k, v) in headers.items()]
         self.write(retinfo)
         self.finish()
 
-class WebApp(EventBus,tornado.web.Application,s_daemon.DmonConf):
+class WebApp(tornado.web.Application, s_daemon.DmonConf, s_config.Config):
     '''
     The WebApp class allows easy publishing of python methods as HTTP APIs.
 
@@ -107,22 +103,26 @@ class WebApp(EventBus,tornado.web.Application,s_daemon.DmonConf):
         wapp.main()
 
     '''
-    def __init__(self, **settings):
-        EventBus.__init__(self)
+    def __init__(self, **conf):
+        s_config.Config.__init__(self)
         s_daemon.DmonConf.__init__(self)
-        tornado.web.Application.__init__(self, **settings)
 
+        app_config = conf.get('app', {})
+        srv_config = conf.get('server', {})
+        boss_config = conf.get('boss', {})
+        boss_minsize = boss_config.get('minsize', 8)
+        boss_maxsize = boss_config.get('maxsize', 128)
+
+        tornado.web.Application.__init__(self, **app_config)
         self.loop = tornado.ioloop.IOLoop()
-        self.serv = tornado.httpserver.HTTPServer(self)
+        self.serv = tornado.httpserver.HTTPServer(self, **srv_config)
 
         self.boss = s_async.Boss()
-
-        # FIXME options
-        self.boss.runBossPool(8, maxsize=128)
+        self.boss.runBossPool(boss_minsize, maxsize=boss_maxsize)
 
         self.iothr = self._runWappLoop()
 
-        self.onfini( self._onWappFini )
+        self.onfini(self._onWappFini)
 
     def listen(self, port, host='0.0.0.0'):
         '''
@@ -152,24 +152,24 @@ class WebApp(EventBus,tornado.web.Application,s_daemon.DmonConf):
 
         '''
         globs = {
-            'wapp':self,
-            'func':func,
-            'perm':perm,
-            'loop':self.loop,
-            'boss':self.boss,
+            'wapp': self,
+            'func': func,
+            'perm': perm,
+            'loop': self.loop,
+            'boss': self.boss,
         }
-        self.add_handlers(host, [ (regex,BaseHand,globs) ])
+        self.add_handlers(host, [(regex, BaseHand, globs)])
 
     def addHandPath(self, regex, handler, host='.*', **globs):
         '''
         Add a BaseHand derived handler.
         '''
         globs.update({
-            'wapp':self,
-            'loop':self.loop,
-            'boss':self.boss,
+            'wapp': self,
+            'loop': self.loop,
+            'boss': self.boss,
         })
-        self.add_handlers(host, [ (regex,handler,globs), ] )
+        self.add_handlers(host, [(regex, handler, globs), ])
 
     def addFilePath(self, regex, path, host='.*'):
         '''
@@ -180,10 +180,10 @@ class WebApp(EventBus,tornado.web.Application,s_daemon.DmonConf):
             wapp.addFilePath('/js/(.*)', '/path/to/js' )
 
         '''
-        globs = {'path':path}
-        self.add_handlers(host, [ (regex, tornado.web.StaticFileHandler, globs) ])
+        globs = {'path': path}
+        self.add_handlers(host, [(regex, tornado.web.StaticFileHandler, globs)])
 
-    @s_threads.firethread
+    @s_common.firethread
     def _runWappLoop(self):
         self.loop.start()
 
@@ -197,93 +197,94 @@ class WebApp(EventBus,tornado.web.Application,s_daemon.DmonConf):
 
         ( mostly used to facilitate unit testing )
         '''
-        return [ s.getsockname() for s in self.serv._sockets.values() ]
+        return [s.getsockname() for s in self.serv._sockets.values()]
 
-    def loadDmonConf(self, conf):
-        '''
-        Load API publishing info from the given config dict.
-
-        Entries in the config define a set of objects to construct
-        and methods to share via the specified URLs.
-
-        Format:
-
-            config = {
-
-                'ctors':(
-                    (<name>,<evalurl>),
-                ),
-
-                'http:apis':(
-                    ( <regex>, <name>.<meth>, <props> )
-                ),
-
-                'http:paths':(
-                    ( <regex>, <path>, <props> ),
-                ),
-
-                'http:listen':(
-                    (<host>,<port>),
-                ),
-            }
-
-        Example:
-
-            The following example creates an instance of the
-            class mypkg.mymod.Woot (named "woot") and shares
-            the method woot.getByFoo(foo) at /v1/woot/by/foo/<foo>
-
-            config = {
-
-                'ctors':(
-                    ( 'woot', 'tcp://telepath.kenshoto.com/woot' ),
-                    ( 'blah', 'ctor://mypkg.mymod.Blah("haha")' ),
-                ),
-
-                'http:apis':(
-                    ( '/v1/woot/by/foo/(.*)', 'woot.getByFoo', {} ),
-                ),
-
-                'http:paths':(
-                    ( '/static/(.*)', '/path/to/static', {}),
-                )
-
-                'http:listen':(
-                    ('0.0.0.0',8080),
-                ),
-            }
-
-        Notes:
-
-            ctor:// based urls may use previous ctor names as vars
-
-            Example:
-
-            'ctors':(
-                ( 'woot', 'ctor://synapse.cortex.openurl("ram:///")' ),
-                ( 'blah', 'ctor://thing.needs.a.cortex(woot)' ),
-            )
-
-        '''
-        # add our API paths...
-        s_daemon.DmonConf.loadDmonConf(self,conf)
-
-        for path,methname,props in conf.get('http:apis',()):
-
-            name,meth = methname.split('.',1)
-
-            item = self.locs.get(name)
-            if item == None:
-                raise NoSuchObj(name)
-
-            func = getattr(item,meth,None)
-            if func == None:
-                raise NoSuchMeth(meth)
-
-            self.addApiPath(path, func)
-
-        for regx,path in conf.get('http:paths',()):
-            self.addFilePath(regx,path)
-
-        for host,port in conf.get('http:listen',()):
-            self.listen(port,host=host)
+# FIXME This function is untested and does not currently work. Commenting out and adding an issue to make WebApp configable.
+#    def loadDmonConf(self, conf):
+#        '''
+#        Load API publishing info from the given config dict.
+#
+#        Entries in the config define a set of objects to construct
+#        and methods to share via the specified URLs.
+#
+#        Format:
+#
+#            config = {
+#
+#                'ctors':(
+#                    (<name>,<evalurl>),
+#                ),
+#
+#                'http:apis':(
+#                    ( <regex>, <name>.<meth>, <props> )
+#                ),
+#
+#                'http:paths':(
+#                    ( <regex>, <path>, <props> ),
+#                ),
+#
+#                'http:listen':(
+#                    (<host>,<port>),
+#                ),
+#            }
+#
+#        Example:
+#
+#           The following example creates an instance of the
+#           class mypkg.mymod.Woot (named "woot") and shares
+#           the method woot.getByFoo(foo) at /v1/woot/by/foo/<foo>
+#
+#           config = {
+#
+#               'ctors':(
+#                   ( 'woot', 'tcp://telepath.kenshoto.com/woot' ),
+#                   ( 'blah', 'ctor://mypkg.mymod.Blah("haha")' ),
+#               ),
+#
+#               'http:apis':(
+#                   ( '/v1/woot/by/foo/(.*)', 'woot.getByFoo', {} ),
+#               ),
+#
+#               'http:paths':(
+#                   ( '/static/(.*)', '/path/to/static', {}),
+#               )
+#
+#               'http:listen':(
+#                   ('0.0.0.0',8080),
+#               ),
+#           }
+#
+#        Notes:
+#
+#            ctor:// based urls may use previous ctor names as vars
+#
+#            Example:
+#
+#            'ctors':(
+#                ( 'woot', 'ctor://synapse.cortex.openurl("ram:///")' ),
+#                ( 'blah', 'ctor://thing.needs.a.cortex(woot)' ),
+#            )
+#
+#        '''
+#        # add our API paths...
+#       s_daemon.DmonConf.loadDmonConf(self, conf)
+#
+#       for path, methname, props in conf.get('http:apis', ()):
+#
+#           name, meth = methname.split('.', 1)
+#
+#           item = self.locs.get(name)
+#           if item is None:
+#               raise s_common.NoSuchObj(name)
+#
+#           func = getattr(item, meth, None)
+#           if func is None:
+#               raise s_common.NoSuchMeth(meth)
+#
+#           self.addApiPath(path, func)
+#
+#       for regx, path in conf.get('http:paths', ()):
+#           self.addFilePath(regx, path)
+#
+#       for host, port in conf.get('http:listen', ()):
+#            self.listen(port, host=host)

@@ -1,17 +1,49 @@
 import time
 import hashlib
 
-import synapse.cores.sqlite as s_c_sqlite
-
 import synapse.compat as s_compat
 import synapse.datamodel as s_datamodel
+
+import synapse.cores.common as s_cores_common
+import synapse.cores.sqlite as s_cores_sqlite
 
 def md5(x):
     return hashlib.md5(x.encode('utf8')).hexdigest()
 
-class Cortex(s_c_sqlite.Cortex):
+def initPsqlCortex(link, conf=None, storconf=None):
+    '''
+    Initialize a Sqlite based Cortex from a link tufo.
+
+    Args:
+        link ((str, dict)): Link tufo.
+        conf (dict): Configable opts for the Cortex object.
+        storconf (dict): Configable opts for the storage object.
+
+    Returns:
+        s_cores_common.Cortex: Cortex created from the link tufo.
+    '''
+    if not conf:
+        conf = {}
+    if not storconf:
+        storconf = {}
+
+    store = PsqlStorage(link, **storconf)
+    return s_cores_common.Cortex(link, store, **conf)
+
+class PsqlStorage(s_cores_sqlite.SqliteStorage):
 
     dblim = None
+
+    # postgres uses BYTEA instead of BLOB
+    _t_init_blobtable = '''
+    CREATE TABLE {{BLOB_TABLE}} (
+         k VARCHAR,
+         v BYTEA
+    );
+    '''
+    # postgres upsert!
+    _t_blob_set = 'INSERT INTO {{BLOB_TABLE}} (k, v) VALUES ({{KEY}}, {{VALU}}) ON CONFLICT (k) DO UPDATE SET ' \
+                   'v={{VALU}}'
 
     # postgres over-rides for md5() based indexing
     _t_init_strval_idx = 'CREATE INDEX {{TABLE}}_strval_idx ON {{TABLE}} (prop,MD5(strval),tstamp)'
@@ -51,25 +83,26 @@ class Cortex(s_c_sqlite.Cortex):
 
     def _initDbConn(self):
         import psycopg2
+        self._psycopg2 = psycopg2
 
-        retry = self._link[1].get('retry',0)
+        retry = self._link[1].get('retry', 0)
 
         dbinfo = self._initDbInfo()
 
         db = None
         tries = 0
-        while db == None:
+        while db is None:
             try:
                 db = psycopg2.connect(**dbinfo)
-            except Exception as e:
+            except Exception as e:  # pragma: no cover
                 tries += 1
                 if tries > retry:
                     raise
 
                 time.sleep(1)
 
-        seqscan = self._link[1].get('pg:seqscan',0)
-        seqscan,_ = s_datamodel.getTypeFrob('bool',seqscan)
+        seqscan = self._link[1].get('pg:seqscan', 0)
+        seqscan, _ = s_datamodel.getTypeNorm('bool', seqscan)
 
         c = db.cursor()
         c.execute('SET enable_seqscan=%s', (seqscan,))
@@ -82,18 +115,11 @@ class Cortex(s_c_sqlite.Cortex):
         if not path:
             return 'syncortex'
 
-        parts = [ p for p in path.split('/') if p ]
+        parts = [p for p in path.split('/') if p]
         if len(parts) <= 1:
             return 'syncortex'
 
         return parts[1]
-
-    #def select(self, q, **args):
-        #if q.find('strval') != -1:
-            #print('EXPLAIN: %r' % (q,))
-            #for row in s_c_sqlite.Cortex.select(self, 'EXPLAIN ANALYZE ' + q, **args):
-                #print(row)
-        #return s_c_sqlite.Cortex.select(self, q, **args)
 
     def _initDbInfo(self):
 
@@ -101,29 +127,29 @@ class Cortex(s_c_sqlite.Cortex):
 
         path = self._link[1].get('path')
         if path:
-            parts = [ p for p in path.split('/') if p ]
+            parts = [p for p in path.split('/') if p]
             if parts:
                 dbinfo['database'] = parts[0]
 
         host = self._link[1].get('host')
-        if host != None:
+        if host is not None:
             dbinfo['host'] = host
 
         port = self._link[1].get('port')
-        if port != None:
+        if port is not None:
             dbinfo['port'] = port
 
         user = self._link[1].get('user')
-        if user != None:
+        if user is not None:
             dbinfo['user'] = user
 
         passwd = self._link[1].get('passwd')
-        if passwd != None:
+        if passwd is not None:
             dbinfo['password'] = passwd
 
         return dbinfo
 
-    def _tufosByIn(self, prop, valus, limit=None):
+    def _joinsByIn(self, prop, valus, limit=None):
         if len(valus) == 0:
             return []
 
@@ -133,19 +159,17 @@ class Cortex(s_c_sqlite.Cortex):
             q = self._q_getjoin_by_in_int
         else:
             q = self._q_getjoin_by_in_str
-            valus = [ md5(v) for v in valus ]
+            valus = [md5(v) for v in valus]
 
-        rows = self.select(q,prop=prop, valu=tuple(valus), limit=limit)
-        rows = self._foldTypeCols(rows)
-        return self._rowsToTufos(rows)
+        rows = self.select(q, prop=prop, valu=tuple(valus), limit=limit)
+        return self._foldTypeCols(rows)
 
-    def _getTufosByIdens(self, idens):
-        rows = self.select( self._q_getrows_by_idens, valu=tuple(idens) )
-        rows = self._foldTypeCols(rows)
-        return self._rowsToTufos(rows)
+    def getRowsByIdens(self, idens):
+        rows = self.select(self._q_getrows_by_idens, valu=tuple(idens))
+        return self._foldTypeCols(rows)
 
     def _initCorQueries(self):
-        s_c_sqlite.Cortex._initCorQueries(self)
+        s_cores_sqlite.SqliteStorage._initCorQueries(self)
 
         self._q_getrows_by_idens = self._prepQuery(self._t_getrows_by_idens)
         self._q_getjoin_by_in_int = self._prepQuery(self._t_getjoin_by_in_int)
@@ -153,3 +177,9 @@ class Cortex(s_c_sqlite.Cortex):
 
     def _addVarDecor(self, name):
         return '%%(%s)s' % (name,)
+
+    def getStoreType(self):
+        return 'postgres'
+
+    def _prepBlobValu(self, valu):
+        return s_compat.bytesToMem(valu)

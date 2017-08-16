@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, '..')
 
 import synapse
+import sphinx_rtd_theme
 
 # -- General configuration ------------------------------------------------
 
@@ -37,8 +38,12 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
+    #'sphinx.ext.napoleon',  # TODO - Uncomment this line when we are ready to cut over style types.
 ]
 
+# # Napoleon settings # TODO - Uncomment these napoleon settings when we are ready to cover over style types.
+# napoleon_google_docstring = True
+# napoleon_numpy_docstring = False
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
@@ -57,7 +62,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'synapse'
-copyright = '2016 visi@vertex.link'
+copyright = '2017 visi@vertex.link'
 author = 'visi'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -127,7 +132,7 @@ todo_include_todos = False
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'alabaster'
+html_theme = 'sphinx_rtd_theme'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
@@ -349,7 +354,8 @@ def run_apidoc(_):
 
 def run_autodoc(_):
     import synapse.tools.autodoc as s_autodoc
-    s_autodoc.main(['--doc-model','--savefile','synapse/datamodel.rst'])
+    s_autodoc.main(['--doc-model', '--savefile', 'synapse/datamodel.rst'])
+    s_autodoc.main(['--configable-opts', '--savefile', 'synapse/configables.rst'])
 
 def setup(app):
     app.connect('builder-inited', run_apidoc)

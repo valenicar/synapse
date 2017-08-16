@@ -1,4 +1,4 @@
-from __future__ import absolute_import,unicode_literals
+from __future__ import absolute_import, unicode_literals
 
 import io
 import os
@@ -7,11 +7,11 @@ import json
 import time
 import types
 import hashlib
-import msgpack
 import functools
 import itertools
 import threading
 import traceback
+import collections
 
 from binascii import hexlify
 
@@ -20,27 +20,76 @@ import synapse.exc as s_exc
 from synapse.exc import *
 from synapse.compat import enbase64, debase64, canstor
 
-class NoValu:pass
+import msgpack
+
+class NoValu: pass
+
 novalu = NoValu()
 
 def now():
-    return int( time.time() * 1000 )
+    '''
+    Get the current epoch time in milliseconds.
+
+    This relies on time.time(), which is system-dependent in terms of resolution.
+
+    Examples:
+        Get the current time and make a row for a Cortex::
+
+            tick = now()
+            row = (someiden, 'foo:prop', 1, tick)
+            core.addRows([row])
+
+    Returns:
+        int: Epoch time in milliseconds.
+    '''
+    return int(time.time() * 1000)
 
 def guid(valu=None):
-    if valu == None:
+    '''
+    Get a 16 byte guid value.
+
+    By default, this is a random guid value.
+
+    Args:
+        valu: Object used to construct the guid valu from.  This must be able
+            to be msgpack'd.
+
+    Returns:
+        str: 32 character, lowercase ascii string.
+    '''
+    if valu is None:
         return hexlify(os.urandom(16)).decode('utf8')
     # Generate a "stable" guid from the given item
     byts = msgenpack(valu)
     return hashlib.md5(byts).hexdigest()
 
-def addpref(pref,info):
+def intify(x):
+    '''
+    Ensure ( or coerce ) a value into being an integer or None.
+
+    Args:
+        x (obj):    An object to intify
+
+    Returns:
+        (int):  The int value ( or None )
+    '''
+    try:
+        return int(x)
+    except (TypeError, ValueError) as e:
+        return None
+
+def addpref(pref, info):
     '''
     Add the given prefix to all elements in the info dict.
     '''
-    return { '%s:%s' % (pref,k):v for (k,v) in info.items() }
+    return {'%s:%s' % (pref, k): v for (k, v) in info.items()}
 
-def tufo(typ,**kwargs):
-    return (typ,kwargs)
+def tufo(typ, **kwargs):
+    return (typ, kwargs)
+
+def splice(act, **info):
+    info['act'] = act
+    return ('splice', info)
 
 def msgenpack(obj):
     return msgpack.dumps(obj, use_bin_type=True, encoding='utf8')
@@ -62,7 +111,7 @@ def vertup(vstr):
         ver = vertup('1.3.30')
 
     '''
-    return tuple([ int(x) for x in vstr.split('.') ])
+    return tuple([int(x) for x in vstr.split('.')])
 
 def genpath(*paths):
     path = os.path.join(*paths)
@@ -80,8 +129,8 @@ def reqfile(*paths, **opts):
     path = genpath(*paths)
     if not os.path.isfile(path):
         raise NoSuchFile(path)
-    opts.setdefault('mode','rb')
-    return io.open(path,**opts)
+    opts.setdefault('mode', 'rb')
+    return io.open(path, **opts)
 
 def reqlines(*paths, **opts):
     '''
@@ -95,16 +144,16 @@ def reqlines(*paths, **opts):
     NOTE: This API is used as a performance optimization
           over the standard fd line iteration mechanism.
     '''
-    opts.setdefault('mode','r')
-    opts.setdefault('encoding','utf8')
+    opts.setdefault('mode', 'r')
+    opts.setdefault('encoding', 'utf8')
 
     rem = None
-    with reqfile(*paths,**opts) as fd:
+    with reqfile(*paths, **opts) as fd:
 
         bufr = fd.read(10000000)
         while bufr:
 
-            if rem != None:
+            if rem is not None:
                 bufr = rem + bufr
 
             lines = bufr.split('\n')
@@ -115,19 +164,19 @@ def reqlines(*paths, **opts):
 
             bufr = fd.read(10000000)
 
-            if rem != None:
+            if rem is not None:
                 bufr = rem + bufr
 
-def getfile(*paths,**opts):
+def getfile(*paths, **opts):
     path = genpath(*paths)
     if not os.path.isfile(path):
         return None
-    opts.setdefault('mode','rb')
-    return io.open(path,**opts)
+    opts.setdefault('mode', 'rb')
+    return io.open(path, **opts)
 
-def getbytes(*paths,**opts):
-    fd = getfile(*paths,**opts)
-    if fd == None:
+def getbytes(*paths, **opts):
+    fd = getfile(*paths, **opts)
+    if fd is None:
         return None
 
     with fd:
@@ -142,16 +191,16 @@ def genfile(*paths):
     Create or open ( for read/write ) a file path join.
     '''
     path = genpath(*paths)
-    gendir( os.path.dirname(path) )
+    gendir(os.path.dirname(path))
     if not os.path.isfile(path):
-        return io.open(path,'w+b')
-    return io.open(path,'r+b')
+        return io.open(path, 'w+b')
+    return io.open(path, 'r+b')
 
-def gendir(*paths,**opts):
-    mode = opts.get('mode',0o700)
+def gendir(*paths, **opts):
+    mode = opts.get('mode', 0o700)
     path = genpath(*paths)
     if not os.path.isdir(path):
-        os.makedirs(path,mode=mode)
+        os.makedirs(path, mode=mode)
     return path
 
 def reqdir(*paths):
@@ -168,63 +217,63 @@ def jsload(*paths):
 
         return json.loads(byts.decode('utf8'))
 
-def gentask(func,*args,**kwargs):
-    return (func,args,kwargs)
+def gentask(func, *args, **kwargs):
+    return (func, args, kwargs)
 
-def jssave(js,*paths):
+def jssave(js, *paths):
     path = genpath(*paths)
-    with io.open(path,'wb') as fd:
-        fd.write( json.dumps(js).encode('utf8') )
+    with io.open(path, 'wb') as fd:
+        fd.write(json.dumps(js).encode('utf8'))
 
 def verstr(vtup):
     '''
     Convert a version tuple to a string.
     '''
-    return '.'.join([ str(v) for v in vtup ])
+    return '.'.join([str(v) for v in vtup])
 
 def excinfo(e):
     '''
     Populate err,errmsg,errtrace info from exc.
     '''
     tb = sys.exc_info()[2]
-    path,line,name,sorc = traceback.extract_tb(tb)[-1]
+    path, line, name, sorc = traceback.extract_tb(tb)[-1]
     ret = {
-        'err':e.__class__.__name__,
-        'errmsg':str(e),
-        'errfile':path,
-        'errline':line,
+        'err': e.__class__.__name__,
+        'errmsg': str(e),
+        'errfile': path,
+        'errline': line,
     }
 
-    if isinstance(e,SynErr):
+    if isinstance(e, SynErr):
         ret['errinfo'] = e.errinfo
 
     return ret
 
-def synerr(excname,**info):
+def synerr(excname, **info):
     '''
     Return a SynErr exception.  If the given name
     is not known, fall back on the base class.
     '''
     info['excname'] = excname
-    cls = getattr(s_exc,excname,s_exc.SynErr)
+    cls = getattr(s_exc, excname, s_exc.SynErr)
     return cls(**info)
 
-def errinfo(name,mesg):
+def errinfo(name, mesg):
     return {
-        'err':name,
-        'errmsg':mesg,
+        'err': name,
+        'errmsg': mesg,
     }
 
-def chunks(item,size):
+def chunks(item, size):
     '''
     Divide an iterable into chunks.
     '''
     # use islice if it's a generator
-    if type(item) == types.GeneratorType:
+    if isinstance(item, types.GeneratorType):
 
         while True:
 
-            chunk = tuple(itertools.islice(item,size))
+            chunk = tuple(itertools.islice(item, size))
             if not chunk:
                 return
 
@@ -236,7 +285,7 @@ def chunks(item,size):
 
     while True:
 
-        chunk = item[off:off+size]
+        chunk = item[off:off + size]
         if not chunk:
             return
 
@@ -256,55 +305,56 @@ def reqStorDict(x):
     Raises BadStorValu if any value in the dict is not compatible
     with being stored in a cortex.
     '''
-    for k,v in x.items():
+    for k, v in x.items():
         if not canstor(v):
-            raise BadStorValu(name=k,valu=v)
-
-class TufoApi:
-    '''
-    TufoApi is a mixin class providing get/set APIs around a
-    tufo being cached in memory.
-    '''
-
-    def __init__(self, core, myfo):
-        self.core = core
-        self.myfo = myfo
-
-    def get(self, prop):
-        '''
-        Retrieve a property from the tufo.
-
-        Example:
-
-            foo = tapi.get('foo')
-
-        '''
-        form = self.myfo[1].get('tufo:form')
-        return self.myfo[1].get('%s:%s' % (form,prop))
-
-    def set(self, prop, valu):
-        '''
-        Set a property in the tufo ( and persist change to core ).
-
-        Example:
-
-            tapi.set('foo', 20)
-
-        '''
-        self.core.setTufoProp(self.myfo, prop, valu)
+            raise BadStorValu(name=k, valu=v)
 
 def firethread(f):
     '''
     A decorator for making a function fire a thread.
     '''
+
     @functools.wraps(f)
-    def callmeth(*args,**kwargs):
-        thr = worker(f,*args,**kwargs)
+    def callmeth(*args, **kwargs):
+        thr = worker(f, *args, **kwargs)
         return thr
+
     return callmeth
 
 def worker(meth, *args, **kwargs):
-    thr = threading.Thread(target=meth,args=args,kwargs=kwargs)
+    thr = threading.Thread(target=meth, args=args, kwargs=kwargs)
     thr.setDaemon(True)
     thr.start()
     return thr
+
+def reqstor(name, valu):
+    '''
+    Check to see if a value can be stored in a Cortex.
+
+    Args:
+        name (str): Property name.
+        valu: Value to check.
+
+    Returns:
+        The valu is returned if it can be stored in a Cortex.
+
+    Raises:
+        BadPropValu if the value is not Cortex storable.
+    '''
+    if not canstor(valu):
+        raise BadPropValu(name=name, valu=valu)
+    return valu
+
+def rowstotufos(rows):
+    '''
+    Convert rows into tufos.
+
+    Args:
+        rows (list): List of rows containing (i, p, v, t) tuples.
+
+    Returns:
+        list: List of tufos.
+    '''
+    res = collections.defaultdict(dict)
+    [res[i].__setitem__(p, v) for (i, p, v, t) in rows]
+    return list(res.items())

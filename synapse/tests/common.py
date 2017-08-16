@@ -1,6 +1,8 @@
 import os
+import ssl
 import sys
 import shutil
+import socket
 import logging
 import tempfile
 import unittest
@@ -9,6 +11,8 @@ import contextlib
 
 logging.basicConfig(level=logging.WARNING)
 
+import synapse.link as s_link
+import synapse.compat as s_compat
 import synapse.cortex as s_cortex
 import synapse.eventbus as s_eventbus
 
@@ -23,7 +27,15 @@ from synapse.common import *
 # to avoid "leaked resource" when a test triggers creation
 s_scope.get('plex')
 
-class TooFewEvents(Exception):pass
+class TooFewEvents(Exception): pass
+
+# Py2/3 SSL Exception Compat
+if s_compat.version >= (3, 0, 0):
+    TestSSLInvalidClientCertErr = ssl.SSLError
+    TestSSLConnectionResetErr = ConnectionResetError
+else:
+    TestSSLInvalidClientCertErr = socket.error
+    TestSSLConnectionResetErr = socket.error
 
 class TestEnv:
 
@@ -33,7 +45,7 @@ class TestEnv:
 
     def __getattr__(self, prop):
         item = self.items.get(prop)
-        if item == None:
+        if item is None:
             raise AttributeError(prop)
         return item
 
@@ -58,7 +70,7 @@ class TestOutPut(s_output.OutPutStr):
     def expect(self, substr):
         outs = str(self)
         if outs.find(substr) == -1:
-            raise Exception('TestOutPut.expect(%s) not in %s' % (substr,outs))
+            raise Exception('TestOutPut.expect(%s) not in %s' % (substr, outs))
 
 class SynTest(unittest.TestCase):
 
@@ -74,38 +86,161 @@ class SynTest(unittest.TestCase):
         if os.getenv('SYN_TEST_NO_INTERNET'):
             raise unittest.SkipTest('no internet access')
 
-    def getPgCore(self):
-        url = os.getenv('SYN_TEST_PG_URL')
-        if url != None:
-            return s_cortex.openurl(url)
+    def getPgConn(self):
+        '''
+        Get a psycopg2 connection object.
 
+        The PG database connected to is derived from the SYN_TEST_PG_DB
+        environmental variable.
+
+        Returns:
+            psycopg2.connection: Raw psycopg2 connection object.
+
+        '''
         db = os.getenv('SYN_TEST_PG_DB')
-        if db == None:
-            raise unittest.SkipTest('no SYN_TEST_PG_DB or SYN_TEST_PG_URL')
+        if not db:
+            raise unittest.SkipTest('no SYN_TEST_PG_DB envar')
+        try:
+            import psycopg2
+        except ImportError:
+            raise unittest.SkipTest('psycopg2 not installed.')
 
-        table = 'syn_test_%s' % guid()
+        url = 'postgres://%s' % db
+        link = s_link.chopLinkUrl(url)
 
-        core = s_cortex.openurl('postgres:///%s/%s' % (db,table))
+        def _initDbInfo(link):
+
+            dbinfo = {}
+
+            path = link[1].get('path')
+            if path:
+                parts = [p for p in path.split('/') if p]
+                if parts:
+                    dbinfo['database'] = parts[0]
+
+            host = link[1].get('host')
+            if host is not None:
+                dbinfo['host'] = host
+
+            port = link[1].get('port')
+            if port is not None:
+                dbinfo['port'] = port
+
+            user = link[1].get('user')
+            if user is not None:
+                dbinfo['user'] = user
+
+            passwd = link[1].get('passwd')
+            if passwd is not None:
+                dbinfo['password'] = passwd
+
+            return dbinfo
+
+        dbinfo = _initDbInfo(link)
+        conn = psycopg2.connect(**dbinfo)
+        return conn
+
+    def getPgCore(self, table='', persist=False, **opts):
+        '''
+        Get a Postgresql backed Cortex.
+
+        This will grab the SYN_TEST_PG_DB environmental variable, and use it to construct
+        a string to connect to a PSQL server and create a Cortex. By default, the Cortex
+        DB tables will be dropped when onfini() is called on the Cortex.
+
+        Some example values for this envar are shown below::
+
+            # From our .drone.yml file
+            root@database:5432/syn_test
+            # An example which may be used with a local docker image
+            # after having created the syn_test database
+            postgres:1234@localhost:5432/syn_test
+
+        Args:
+            table (str): The PSQL table name to use.  If the table name is not provided
+                         by URL or argument; a random table name will be created.
+            persist (bool): If set to True, keep the tables created by the Cortex creation.
+            opts: Additional options passed to openlink call.
+
+        Returns:
+            A PSQL backed cortex.
+
+        Raises:
+            unittest.SkipTest: if there is no SYN_TEST_PG_DB envar set.
+        '''
+        db = os.getenv('SYN_TEST_PG_DB')
+        if not db:
+            raise unittest.SkipTest('no SYN_TEST_PG_DB envar')
+
+        if not table:
+            table = 'syn_test_%s' % guid()
+        core = s_cortex.openurl('postgres://%s/%s' % (db, table), **opts)
 
         def droptable():
             with core.getCoreXact() as xact:
                 xact.cursor.execute('DROP TABLE %s' % (table,))
+                xact.cursor.execute('DROP TABLE IF EXISTS %s' % (table + '_blob',))
 
-        core.onfini(droptable)
+        if not persist:
+            core.onfini(droptable)
         return core
+
+    def getRev0DbByts(self):
+        '''
+        Get the bytes for the rev0.db SQLIte Cortex.
+        '''
+        path = getTestPath('rev0.db')
+        with open(path, 'rb') as fd:
+            byts = fd.read()
+
+        # Hash of the rev0 file on initial commit prevent
+        # commits which overwrite this accidentally from passing.
+        known_hash = '50cae022b296e0c2b61fd6b101c4fdaf'
+        self.eq(hashlib.md5(byts).hexdigest().lower(), known_hash)
+        return byts
+
+    def getRev0DbBytsMpk(self):
+        '''
+        Get the bytes for the rev0.db Cortex savefile.
+        '''
+        path = getTestPath('rev0.mpk')
+
+        with open(path, 'rb') as fd:
+            byts = fd.read()
+
+        # Hash of the rev0 file on initial commit prevent
+        # commits which overwrite this accidentally from passing.
+        known_hash = '5f724ba09c719e1f83454431b516e429'
+        self.eq(hashlib.md5(byts).hexdigest().lower(), known_hash)
+        return byts
+
+    def getRev0DbBytsLmdbGz(self):
+        '''
+        Get the bytes for the rev0.db Cortex in lmdb form.
+        This bytestream has been gzip.compressed.
+        '''
+        path = getTestPath('rev0.lmdb.gz')
+        with open(path, 'rb') as fd:
+            byts = fd.read()
+
+        # Hash of the rev0 file on initial commit prevent
+        # commits which overwrite this accidentally from passing.
+        known_hash = '06c05fa1ed9c9c195e060905357caef6'
+        self.eq(hashlib.md5(byts).hexdigest().lower(), known_hash)
+        return byts
 
     def getTestOutp(self):
         return TestOutPut()
 
     def thisHostMust(self, **props):
-        for k,v in props.items():
+        for k, v in props.items():
             if s_thishost.get(k) != v:
-                raise unittest.SkipTest('skip thishost: %s!=%r' % (k,v))
+                raise unittest.SkipTest('skip thishost: %s!=%r' % (k, v))
 
     def thisHostMustNot(self, **props):
-        for k,v in props.items():
+        for k, v in props.items():
             if s_thishost.get(k) == v:
-                raise unittest.SkipTest('skip thishost: %s==%r' % (k,v))
+                raise unittest.SkipTest('skip thishost: %s==%r' % (k, v))
 
     @contextlib.contextmanager
     def getTestDir(self):
@@ -114,10 +249,10 @@ class SynTest(unittest.TestCase):
         shutil.rmtree(tempdir, ignore_errors=True)
 
     def eq(self, x, y):
-        self.assertEqual(x,y)
+        self.assertEqual(x, y)
 
     def ne(self, x, y):
-        self.assertNotEqual(x,y)
+        self.assertNotEqual(x, y)
 
     def true(self, x):
         self.assertTrue(x)
@@ -132,21 +267,43 @@ class SynTest(unittest.TestCase):
         self.assertIsNone(x)
 
     def noprop(self, info, prop):
-        valu = info.get(prop,novalu)
-        self.eq(valu,novalu)
+        valu = info.get(prop, novalu)
+        self.eq(valu, novalu)
 
     def raises(self, *args, **kwargs):
-        return self.assertRaises(*args,**kwargs)
+        return self.assertRaises(*args, **kwargs)
 
     def sorteq(self, x, y):
-        return self.eq( sorted(x), sorted(y) )
+        return self.eq(sorted(x), sorted(y))
+
+    def isinstance(self, obj, cls):
+        self.assertIsInstance(obj, cls)
+
+    def isin(self, member, container):
+        self.assertIn(member, container)
+
+    def notin(self, member, container):
+        self.assertNotIn(member, container)
+
+    def gt(self, x, y):
+        self.assertGreater(x, y)
+
+    def ge(self, x, y):
+        self.assertGreaterEqual(x, y)
+
+    def lt(self, x, y):
+        self.assertLess(x, y)
+
+    def le(self, x, y):
+        self.assertLessEqual(x, y)
+
 
 testdir = os.path.dirname(__file__)
 def getTestPath(*paths):
-    return os.path.join(testdir,*paths)
+    return os.path.join(testdir, *paths)
 
 def getIngestCore(path, core=None):
-    if core == None:
+    if core is None:
         core = s_cortex.openurl('ram:///')
 
     gest = s_ingest.loadfile(path)

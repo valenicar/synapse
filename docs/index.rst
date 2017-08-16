@@ -6,14 +6,14 @@ Contents:
 .. toctree::
     :maxdepth: 2
 
-    synapse/cortex
-    synapse/eventbus
-    synapse/telepath
-    synapse/dmon
-    synapse/axon
-    synapse/devops
-    synapse/api/synapse
+    synapse/userguide_section0
+    synapse/devopsguide
     synapse/datamodel
+    synapse/api/synapse
+    synapse/configables
+    performance
+    contributing
+    release_process
 
 Indices and tables
 ==================

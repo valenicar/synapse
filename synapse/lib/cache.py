@@ -1,3 +1,5 @@
+from __future__ import absolute_import, unicode_literals
+
 import time
 import threading
 import collections
@@ -40,9 +42,9 @@ class Cache(EventBus):
         self.maxtime = None
         self.cachelock = threading.Lock()
 
-        self.onfini( self._onCacheFini )
+        self.onfini(self._onCacheFini)
 
-        if maxtime != None:
+        if maxtime is not None:
             self.setMaxTime(maxtime)
 
     def setOnMiss(self, onmiss):
@@ -62,24 +64,24 @@ class Cache(EventBus):
     def setMaxTime(self, valu):
         oldm = self.maxtime
         self.maxtime = valu
-        if oldm == None:
+        if oldm is None:
             self._checkCacheTimes()
 
     def _checkCacheTimes(self):
         mintime = time.time() - self.maxtime
         try:
-            hits = [ k for (k,t) in self.lasthit.items() if t < mintime ]
-            [ self.pop(k) for k in hits ]
+            hits = [k for (k, t) in self.lasthit.items() if t < mintime]
+            [self.pop(k) for k in hits]
         finally:
-            if not self.isfini and self.maxtime != None:
+            if not self.isfini and self.maxtime is not None:
                 ival = self.maxtime / 10.0
-                self.sched.insec(ival, self._checkCacheTimes )
+                self.schevt = self.sched.insec(ival, self._checkCacheTimes)
 
     def clear(self):
         '''
         Flush and clear the entire cache.
         '''
-        [ self.flush(key) for key in self.keys() ]
+        [self.flush(key) for key in self.keys()]
         self.cache.clear()
         self.lasthit.clear()
 
@@ -92,16 +94,16 @@ class Cache(EventBus):
             val = cache.get(key)
 
         '''
-        val = self.cache.get(key,miss)
+        val = self.cache.get(key, miss)
         if val is not miss:
             self.lasthit[key] = time.time()
             return val
 
-        if self.onmiss == None:
+        if self.onmiss is None:
             return None
 
         with self.cachelock:
-            val = self.cache.get(key,miss)
+            val = self.cache.get(key, miss)
             if val is miss:
                 val = self.onmiss(key)
 
@@ -131,9 +133,9 @@ class Cache(EventBus):
             cache.pop('woot')
 
         '''
-        val = self.cache.pop(key,None)
+        val = self.cache.pop(key, None)
 
-        self.lasthit.pop(key,None)
+        self.lasthit.pop(key, None)
 
         self.fire('cache:flush', key=key, val=val)
         self.fire('cache:pop', key=key, val=val)
@@ -174,13 +176,16 @@ class Cache(EventBus):
         return len(self.cache)
 
     def __iter__(self):
-        return list( self.cache.items() )
+        return iter(list(self.cache.items()))
+
+    def __contains__(self, item):
+        return item in self.cache
 
     def _onCacheFini(self):
         for key in self.keys():
             self.pop(key)
 
-        if self.schevt != None:
+        if self.schevt is not None:
             self.sched.cancel(self.schevt)
 
 class FixedCache(EventBus):
@@ -197,7 +202,7 @@ class FixedCache(EventBus):
         self.cache = {}
         self.onmiss = onmiss
         self.maxsize = maxsize
-        self.cachelock = threading.Lock()
+        self.cachelock = threading.RLock()
 
         self.fifo = collections.deque()
 
@@ -215,7 +220,7 @@ class FixedCache(EventBus):
         '''
         with self.cachelock:
 
-            valu = self.cache.get(key,miss)
+            valu = self.cache.get(key, miss)
 
             if valu is miss and self.onmiss:
                 valu = self.onmiss(key)
@@ -224,7 +229,7 @@ class FixedCache(EventBus):
 
                 while len(self.fifo) > self.maxsize:
                     nuk = self.fifo.popleft()
-                    self.cache.pop(nuk,None)
+                    self.cache.pop(nuk, None)
 
             if valu is miss:
                 return None
@@ -232,12 +237,18 @@ class FixedCache(EventBus):
             return valu
 
     def clear(self):
-        ''' 
+        '''
         Remove all entries from the FixedCache.
         '''
         with self.cachelock:
             self.fifo.clear()
             self.cache.clear()
+
+    def __len__(self):
+        return len(self.fifo)
+
+    def __contains__(self, item):
+        return item in self.cache
 
 class TufoCache(Cache):
 
@@ -245,14 +256,14 @@ class TufoCache(Cache):
         Cache.__init__(self, maxtime=maxtime)
 
         self.core = core
-        self.setOnMiss( core.getTufoByIden )
+        self.setOnMiss(core.getTufoByIden)
 
     def _onTufoFlush(self, event):
         iden = event[1].get('key')
         tufo0 = event[1].get('val')
 
         tufo1 = self.core.getTufoByIden(iden)
-        if tufo1 == None:
+        if tufo1 is None:
             return
 
         self.core.setTufoProps(tufo1, **tufo0[1])
@@ -262,10 +273,10 @@ class TufoPropCache(TufoCache):
     def __init__(self, core, prop, maxtime=None):
         TufoCache.__init__(self, core, maxtime=maxtime)
         self.prop = prop
-        self.setOnMiss( self.getTufoByValu )
+        self.setOnMiss(self.getTufoByValu)
 
     def getTufoByValu(self, valu):
-        return self.core.getTufoByProp(self.prop,valu)
+        return self.core.getTufoByProp(self.prop, valu)
 
 
 def keymeth(name):
@@ -301,16 +312,16 @@ class OnDem(collections.defaultdict):
         self._key_funcs = {}
 
         for name in dir(self):
-            attr = getattr(self,name,None)
-            keyn = getattr(attr,'_keycache_name',None)
-            if keyn == None:
+            attr = getattr(self, name, None)
+            keyn = getattr(attr, '_keycache_name', None)
+            if keyn is None:
                 continue
 
             self._key_funcs[keyn] = attr
 
     def __missing__(self, name):
         func = self._key_funcs.get(name)
-        if func == None:
+        if func is None:
             raise KeyError(name)
 
         valu = func()
@@ -345,7 +356,7 @@ class OnDem(collections.defaultdict):
 
         '''
         def keyfunc():
-            return func(*args,**kwargs)
+            return func(*args, **kwargs)
 
         self._key_funcs[name] = keyfunc
 
@@ -389,7 +400,7 @@ class RefDict:
 
     def put(self, key, val):
         with self.lock:
-            return self._put(key,val)
+            return self._put(key, val)
 
     def get(self, key):
         return self.vals.get(key)
@@ -401,21 +412,31 @@ class RefDict:
     def _pop(self, key):
         self.refs[key] -= 1
         if self.refs[key] <= 0:
-            self.refs.pop(key,None)
-            return self.vals.pop(key,None)
+            self.refs.pop(key, None)
+            return self.vals.pop(key, None)
 
     def _put(self, key, val):
-        val = self.vals.setdefault(key,val)
+        val = self.vals.setdefault(key, val)
         self.refs[key] += 1
         return val
 
     def puts(self, items):
         with self.lock:
-            return [ self._put(k,v) for (k,v) in items ]
+            return [self._put(k, v) for (k, v) in items]
 
     def pops(self, keys):
         with self.lock:
-            return [ self._pop(k) for k in keys ]
+            return [self._pop(k) for k in keys]
+
+    def clear(self):
+        with self.lock:
+            self.vals.clear()
+            self.refs.clear()
+
+    def __contains__(self, item):
+        with self.lock:
+            return item in self.vals
 
     def __len__(self):
-        return len(self.vals)
+        with self.lock:
+            return len(self.vals)

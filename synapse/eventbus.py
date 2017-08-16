@@ -1,13 +1,61 @@
-import weakref
 import logging
 import threading
 import traceback
 import collections
 
-finlock = threading.RLock()
-logger  = logging.getLogger(__name__)
+import synapse.common as s_common
 
-from synapse.common import *
+import synapse.lib.reflect as s_reflect
+import synapse.lib.thishost as s_thishost
+
+logger = logging.getLogger(__name__)
+finlock = threading.RLock()
+
+def on(name, **filt):
+    '''
+    A decorator to register a method for EventBus.on() callbacks.
+
+    Example:
+
+        class FooBar(EventBus):
+
+            @on('hehe')
+            def _onHehe(self, mesg):
+                doHeheStuff(mesg)
+
+            # only fires if mesg[1].get('woot') == True
+            @on('haha', woot=True)
+            def _onHahaWoot(self, mesg):
+                doHahaStuff(mesg)
+
+    See: EventBus.on()
+
+    '''
+    def wrap(f):
+        ons = getattr(f, '_ebus_ons', None)
+        if ons is None:
+            ons = f._ebus_ons = []
+        ons.append((name, filt))
+        return f
+    return wrap
+
+def onfini(f):
+    '''
+    A decorator to register a method for EventBus.onfini() callbacks.
+
+    Example:
+
+        class FooBar(EventBus):
+
+            @onfini
+            def _onFooBarFini(self):
+                doFiniStuff()
+
+    See: EventBus.onfini()
+
+    '''
+    f._ebus_onfini = True
+    return f
 
 class EventBus(object):
     '''
@@ -19,15 +67,28 @@ class EventBus(object):
         self.finievt = threading.Event()
 
         self._syn_funcs = collections.defaultdict(list)
-        self._syn_weaks = collections.defaultdict(weakref.WeakSet)
 
         self._syn_links = []
-        self._syn_weak_links = weakref.WeakSet()
 
         self._syn_queues = {}
 
         self._fini_funcs = []
-        self._fini_weaks = weakref.WeakSet()
+
+        for name, valu in s_reflect.getItemLocals(self):
+
+            if not callable(valu):
+                continue
+
+            # check for onfini() decorator
+            if getattr(valu, '_ebus_onfini', None):
+                self.onfini(valu)
+                continue
+
+            # check for on() decorators
+            for name, filt in getattr(valu, '_ebus_ons', ()):
+                self.on(name, valu, **filt)
+
+        self.fire('ebus:init')
 
     def __enter__(self):
         return self
@@ -35,7 +96,7 @@ class EventBus(object):
     def __exit__(self, type, value, traceback):
         self.fini()
 
-    def link(self, func, weak=False):
+    def link(self, func):
         '''
         Add a callback function to receive *all* events.
 
@@ -49,12 +110,6 @@ class EventBus(object):
             # all events on bus1 are also propigated on bus2
 
         '''
-        if not callable(func):
-            raise Exception('link() func not callable: %r' % (func,))
-
-        if weak:
-            return self._syn_weak_links.add(func)
-
         self._syn_links.append(func)
 
     def unlink(self, func):
@@ -66,13 +121,20 @@ class EventBus(object):
             bus.unlink( callback )
 
         '''
-        self._syn_weak_links.discard(func)
         if func in self._syn_links:
             self._syn_links.remove(func)
 
-    def on(self, name, func, weak=False):
+    def on(self, name, func, **filts):
         '''
-        Add a callback func to the SynCallBacker.
+        Add an event bus callback for a specific event with optional filtering.
+
+        Args:
+            name (str):         An event name
+            func (function):    A callback function to receive event tufo
+            **filts:            Optional positive filter values for the event tuple.
+
+        Returns:
+            (None)
 
         Example:
 
@@ -81,23 +143,16 @@ class EventBus(object):
                 y = event[1].get('y')
                 return x + y
 
-            d.on('woot',baz)
+            d.on('foo', baz, x=10)
 
+            # this fire triggers baz...
             d.fire('foo', x=10, y=20)
 
-        Notes:
-
-            * Use weak=True to hold a weak reference to the func.
+            # this fire does not ( due to filt )
+            d.fire('foo', x=30, y=20)
 
         '''
-        if not callable(func):
-            raise Exception('on() func not callable: %r' % (func,))
-
-        if weak:
-            self._syn_weaks[name].add(func)
-            return
-
-        self._syn_funcs[name].append(func)
+        self._syn_funcs[name].append((func, tuple(filts.items())))
 
     def off(self, name, func):
         '''
@@ -109,22 +164,16 @@ class EventBus(object):
 
         '''
         funcs = self._syn_funcs.get(name)
-        if funcs != None:
+        if funcs is not None:
 
-            if func in funcs:
-                funcs.remove(func)
+            for i in range(len(funcs)):
+
+                if funcs[i][0] == func:
+                    funcs.pop(i)
+                    break
 
             if not funcs:
-                self._syn_funcs.pop(name,None)
-
-        weaks = self._syn_weaks.get(name)
-        if weaks != None:
-
-            if func in weaks:
-                weaks.remove(func)
-
-            if not weaks:
-                self._syn_weaks.pop(name,None)
+                self._syn_funcs.pop(name, None)
 
     def fire(self, evtname, **info):
         '''
@@ -137,41 +186,39 @@ class EventBus(object):
                 print('got: %r' % (ret,))
 
         '''
-        event = (evtname,info)
+        event = (evtname, info)
         self.dist(event)
         return event
 
-    def dist(self, event):
+    def dist(self, mesg):
         '''
         Distribute an existing event tuple.
+
+        Args:
+            mesg ((str,dict)):  An event tuple.
+
+        Example:
+
+            ebus.dist( ('foo',{'bar':'baz'}) )
+
         '''
         ret = []
-        name = event[0]
-        funcs = self._syn_funcs.get(name)
-        if funcs != None:
-            for func in funcs:
-                try:
-                    ret.append( func( event ) )
-                except Exception as e:
-                    logger.exception(e)
 
-        weaks = self._syn_weaks.get(name)
-        if weaks != None:
-            for func in weaks:
-                try:
-                    ret.append( func( event ) )
-                except Exception as e:
-                    logger.exception(e)
+        for func, filt in self._syn_funcs.get(mesg[0], ()):
 
-        for func in self._syn_links:
             try:
-                ret.append( func(event) )
+
+                if any(True for k, v in filt if mesg[1].get(k) != v):
+                    continue
+
+                ret.append(func(mesg))
+
             except Exception as e:
                 logger.exception(e)
 
-        for func in self._syn_weak_links:
+        for func in self._syn_links:
             try:
-                ret.append( func(event) )
+                ret.append(func(mesg))
             except Exception as e:
                 logger.exception(e)
 
@@ -199,20 +246,16 @@ class EventBus(object):
             except Exception as e:
                 traceback.print_exc()
 
-        for func in self._fini_weaks:
-            try:
-                func()
-            except Exception as e:
-                traceback.print_exc()
+        # explicitly release the handlers
+        self._syn_funcs.clear()
+        del self._fini_funcs[:]
 
         self.finievt.set()
 
-    def onfini(self, func, weak=False):
+    def onfini(self, func):
         '''
         Register a handler to fire when this EventBus shuts down.
         '''
-        if weak:
-            return self._fini_weaks.add(func)
         self._fini_funcs.append(func)
 
     def waitfini(self, timeout=None):
@@ -247,8 +290,8 @@ class EventBus(object):
         Distribute multiple events on the event bus.
         '''
         [self.dist(evt) for evt in events]
-    
-    @firethread
+
+    @s_common.firethread
     def consume(self, gtor):
         '''
         Feed the event bus from a generator.
@@ -259,7 +302,7 @@ class EventBus(object):
 
         '''
         for e in gtor:
-            if e == None:
+            if e is None:
                 break
 
             self.dist(e)
@@ -289,6 +332,38 @@ class EventBus(object):
 
         '''
         return Waiter(self, count, *names)
+
+    def log(self, level, mesg, **info):
+        '''
+        Implements the log event convention for an EventBus.
+
+        Args:
+            level (int):  A python logger level for the event
+            mesg (str):   A log message
+            **info:       Additional log metadata
+
+        '''
+        info['time'] = s_common.now()
+        info['host'] = s_thishost.get('hostname')
+
+        info['level'] = level
+        info['class'] = self.__class__.__name__
+
+        self.fire('log', mesg=mesg, **info)
+
+    def exc(self, exc, **info):
+        '''
+        Implements the exception log convention for EventBus.
+        A caller is expected to be within the except frame.
+
+        Args:
+            exc (Exception):    The exception to log
+
+        Returns:
+            None
+        '''
+        info.update(s_common.excinfo(exc))
+        self.log(logging.ERROR, str(exc), **info)
 
 class Waiter:
     '''
@@ -344,8 +419,7 @@ class Waiter:
     def fini(self):
 
         for name in self.names:
-            self.bus.off(name,self._onWaitEvent)
+            self.bus.off(name, self._onWaitEvent)
 
         if not self.names:
             self.bus.unlink(self._onWaitEvent)
-

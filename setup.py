@@ -1,17 +1,17 @@
 #!/usr/bin/env python
-from setuptools import setup,find_packages
+from setuptools import setup, find_packages
 
 
 setup(
     name='synapse',
-    version='0.0.14', # sync with synapse.version!
+    version='0.0.21',
     description='Synapse Distributed Key-Value Hypergraph Analysis Framework',
     author='Invisigoth Kenshoto',
     author_email='invisigoth.kenshoto@gmail.com',
     url='https://github.com/vertexproject/synapse',
     license='Apache License 2.0',
 
-    packages=find_packages(exclude=['*.tests','*.tests.*']),
+    packages=find_packages(exclude=['*.tests', '*.tests.*']),
 
     include_package_data=True,
 
@@ -20,6 +20,8 @@ setup(
         'cryptography>=1.7.2',
         'pyOpenSSL>=16.2.0',
         'msgpack-python>=0.4.2',
+        'xxhash>=1.0.1',
+        'lmdb>=0.92'
     ],
 
     classifiers=[
