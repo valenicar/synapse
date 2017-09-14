@@ -1873,6 +1873,20 @@ class CortexTest(SynTest):
 
                 self.nn(core1.getTufoByProp('inet:fqdn', 'woot.com'))
 
+    def test_cortex_splicepump_perf(self):
+
+        n = 10000
+
+        with s_cortex.openurl('ram://') as core0:
+
+            with s_cortex.openurl('ram://') as core1:
+
+                with core0.getSplicePump(core1):
+                    for i in range(n):
+                        core0.formTufoByProp('inet:ipv4', i)
+
+            self.eq(len(core0.eval('inet:ipv4')), len(core1.eval('inet:ipv4')))
+
     def test_cortex_xact_deadlock(self):
         N = 100
         prop = 'testform'

@@ -1,4 +1,5 @@
 import json
+import time
 import logging
 import itertools
 import threading
@@ -2573,11 +2574,17 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         '''
         Return a splice pump for the remote cortex.
 
-        #Example:
+        Args:
+            core (Cortex): The remote Cortex to send splice events too.
 
-            with core.getSplicePump(prox):
-                core.formTufoByProp('inet:fqdn','vertex.link')
+        Examples:
+            Send the splices from a tufo creation event to a remote Cortex::
 
+                with core.getSplicePump(prox):
+                    core.formTufoByProp('inet:fqdn','vertex.link')
+
+        Returns:
+            s_queue.Queue: A queue object which has events pumped through it.
         '''
         pump = s_queue.Queue()
         self.on('splice', pump.put)
@@ -2588,13 +2595,15 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
 
                 try:
 
-                    for msgs in pump.slices(1000):
+                    for msgs in pump.slices(1000, timeout=0.2):
                         errs = core.splices(msgs)
                         for err in errs:
                             logger.warning('splice pump: %r' % (err,))
 
                 except Exception as e:
-                    logger.exception(e)
+                    logger.exception('Error encountered during splicepump operation')
+
+                time.sleep(0.2)
 
         wrkr = s_threads.worker(splicepump)
         pump.onfini(wrkr.fini)
