@@ -798,7 +798,7 @@ class Daemon(EventBus, DmonConf):
                 errinfo = s_common.excinfo(e)
                 sock.tx(s_common.tufo('job:done', jid=jid, err=errinfo.get('err'), errinfo=errinfo))
 
-    def listen(self, linkurl, **opts):
+    def listen(self, url, **opts):
         '''
         Create and run a link server by url.
 
@@ -811,8 +811,7 @@ class Daemon(EventBus, DmonConf):
             * Returns the parsed link tufo
 
         '''
-        link = s_link.chopLinkUrl(linkurl)
-        link[1].update(opts)
+        link = s_link.chop(url, **opts)
 
         relay = s_link.getLinkRelay(link)
 

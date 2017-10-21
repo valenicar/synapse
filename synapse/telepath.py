@@ -36,9 +36,7 @@ def openurl(url, **opts):
         foo.dostuff(30) # call remote method
 
     '''
-    #plex = opts.pop('plex',None)
-    #return openclass(Proxy,url,**opts)
-    link = s_link.chopLinkUrl(url)
+    link = s_link.chop(url)
     link[1].update(opts)
 
     return openlink(link)

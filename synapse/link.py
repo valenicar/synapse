@@ -46,13 +46,13 @@ def getLinkRelay(link):
         raise s_common.NoSuchProto(proto)
     return ctor(link)
 
-def chopLinkUrl(url):
+def chop(url, **opts):
     '''
     Parse a link tuple from a url.
 
     Example:
 
-        link = chopLinkUrl('tcp://1.2.3.4:80/')
+        link = chop('tcp://1.2.3.4:80/')
 
     Notes:
 
@@ -99,14 +99,5 @@ def chopLinkUrl(url):
         link[1]['retry'] = int(retry, 0)
 
     link[1].update(query)
+    link[1].update(opts)
     return link
-
-def listen(url, **info):
-    '''
-    Chop a link url and form a listening socket.
-    '''
-    link = chopLinkUrl(url)
-    link[1].update(info)
-
-    relay = getLinkRelay(link)
-    return relay.listen()

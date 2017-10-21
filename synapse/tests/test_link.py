@@ -65,7 +65,7 @@ class LinkTest(SynTest):
 
     def test_link_fromurl(self):
         url = 'tcp://visi:secret@127.0.0.1:9999/foo?rc4key=wootwoot&retry=20'
-        link = s_link.chopLinkUrl(url)
+        link = s_link.chop(url)
 
         self.eq(link[0], 'tcp')
         self.eq(link[1].get('port'), 9999)
@@ -151,7 +151,7 @@ class LinkTest(SynTest):
         self.raises(NoSuchFile, s_telepath.openurl, url)
 
     def test_link_pool(self):
-        link = s_link.chopLinkUrl('foo://visi:c@t@woot.com?poolsize=7&poolmax=-1')
+        link = s_link.chop('foo://visi:c@t@woot.com?poolsize=7&poolmax=-1')
         self.eq(link[1].get('poolsize'), 7)
         self.eq(link[1].get('poolmax'), -1)
 

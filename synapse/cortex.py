@@ -89,8 +89,7 @@ def openstore(url, storconf=None, **opts):
     if not storconf:
         storconf = {}
 
-    link = s_link.chopLinkUrl(url)
-    link[1].update(opts)
+    link = s_link.chop(url, **opts)
 
     ctor = storectors.get(link[0])
     if ctor is None:
@@ -146,9 +145,8 @@ def openurl(url, conf=None, storconf=None, **opts):
     if not storconf:
         storconf = {}
 
-    link = s_link.chopLinkUrl(url)
+    link = s_link.chop(url, **opts)
 
-    link[1].update(opts)
     return openlink(link, conf, storconf)
 
 def openlink(link, conf=None, storconf=None,):

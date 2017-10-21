@@ -108,7 +108,7 @@ class SynTest(unittest.TestCase):
             raise unittest.SkipTest('psycopg2 not installed.')
 
         url = 'postgres://%s' % db
-        link = s_link.chopLinkUrl(url)
+        link = s_link.chop(url)
 
         def _initDbInfo(link):
 
