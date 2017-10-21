@@ -3,10 +3,12 @@ import time
 
 from copy import deepcopy as cp
 
+import synapse.link as s_link
 import synapse.common as s_common
 import synapse.neuron as s_neuron
 
 import synapse.lib.task as s_task
+import synapse.lib.socket as s_socket
 
 from synapse.tests.common import *
 
@@ -133,3 +135,10 @@ class NeurTest(SynTest):
             self.true(task.isfini)
             self.eq(rets[0][0], False)
             self.eq(rets[0][1]['err'], 'Exception')
+
+    def test_neuron_link(self):
+        with s_socket.Plex() as plex:
+            link = s_link.chop('tcp://127.0.0.1:8080/')
+            lnkr = s_neuron.Link(link, plex=plex)
+
+            lnkr.connect()

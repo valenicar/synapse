@@ -55,6 +55,7 @@ class NoSuchEncoder(SynErr): pass
 
 class BadOperArg(SynErr): pass
 class ReqConfOpt(SynErr): pass
+class BadLinkValu(SynErr): pass
 class BadConfValu(SynErr):
     '''
     The configuration value provided is not valid.

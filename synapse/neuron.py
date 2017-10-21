@@ -1,15 +1,21 @@
 import os
+import time
+import logging
 import threading
 import collections
 
 import synapse.glob as s_glob
+import synapse.link as s_link
 import synapse.common as s_common
 import synapse.cortex as s_cortex
+import synapse.eventbus as s_eventbus
 
 import synapse.lib.fifo as s_fifo
 import synapse.lib.config as s_config
 import synapse.lib.socket as s_socket
 import synapse.lib.thishost as s_thishost
+
+logger = logging.getLogger(__file__)
 
 '''
 A node tufo looks like so...
@@ -71,8 +77,11 @@ class Node(s_config.Config):
         self.routes = {}
         self.routes_by_link = collections.defaultdict(set)
 
+        self.fastfuncs = {
+            'link': self._fastLinkMesg,
+        }
+
         self.mesgfuncs = {
-            'link': self._handLinkMesg,
             #'xmit': self._handXmitMesg,
         }
 
@@ -136,6 +145,11 @@ class Node(s_config.Config):
         # this is the plex thread.  gtfo.
         sock = evnt[1].get('sock')
         mesg = evnt[1].get('mesg')
+
+        fast = self.fastfuncs.get(mesg[0])
+        if fast is not None:
+            return fast(sock, mesg)
+
         # use the global pool for message handling
         s_glob.pool.call(self._handSockMesg, sock, mesg)
 
@@ -175,7 +189,7 @@ class Node(s_config.Config):
     def getNodeLink(self, lkey):
         return self.links.get(lkey)
 
-    # a node is (iden, {'links':{}, ...})
+    # a node is (iden, {'links':{dest:{}, ...}, ...})
     # a link is ( (iden0, iden1), {info} )
     # a rout is ( link, ... )
 
@@ -289,7 +303,8 @@ class Node(s_config.Config):
 
         sock.tx(mesg)
 
-    def _handLinkMesg(self, sock, mesg):
+    def _fastLinkMesg(self, sock, mesg):
+
         # another node would like to link with us
         iden = mesg[1].get('iden')
 
@@ -317,6 +332,7 @@ class Node(s_config.Config):
         )
 
 #def open(url, **opts):
+    #link = s_link.chop(url, **opts)
 
 class Dendrite(s_config.Config):
     '''
@@ -359,4 +375,106 @@ class Dendrite(s_config.Config):
                 enfo = s_common.excinfo(e)
                 task.err(enfo)
 
-#class Nerve:
+import synapse.lib.atomic as s_atomic
+
+#def openlink(url, plex=None, **opts):
+    #link = s_link.chop(url, **opts)
+    #return Link(link, plex=plex)
+
+#class NodeLink(Link):
+
+class Link(s_eventbus.EventBus):
+    '''
+    A Link is a persistent client connection which tries to
+    recover it's transmit backlog on socket fini().
+    '''
+    def __init__(self, link, plex=None):
+        s_eventbus.EventBus.__init__(self)
+
+        self.txq = []
+        self.sock = None
+        self.lock = threading.Lock()
+        self.relay = s_link.getLinkRelay(link)
+        #self.tasks = s_eventbus.BusRef(ctor=self._ctor_task)
+
+        #self.sock = None
+
+        if plex is None:
+            plex = s_socket.Plex()
+
+        self.plex = plex
+        self.plex.onfini(self.fini)
+
+        self.xchg = s_atomic.CmpSet(False)
+
+        #self.iden = link[1].get('sess')
+        #if self.iden is None:
+            #self.iden = s_common.guid()
+
+        #if not s_common.isguid(self.iden):
+            #raise s_common.BadLinkValu(name='sess', valu=iden)
+
+    def tx(self, mesg):
+
+        byts = s_msgpack.en(mesg)
+
+        with self.lock:
+
+            if self.sock is None:
+                return self.txq.append(byts)
+
+            sock.txbytes(byts)
+
+    def connect(self):
+
+        if not self.xchg.set(True):
+            return
+
+        try:
+
+            # prevent tx while we do this...
+            with self.lock:
+                olds = self.sock
+
+                self.txq = []
+                self.sock = None
+
+            if olds is not None:
+                self.txq.extend(olds.getTxQ())
+                olds.fini()
+
+            while not self.isfini:
+
+                try:
+                    # do a blocking connect and handshake
+                    sock = self.relay.connect()
+
+                    # fire any sync sock inits
+                    self.fire('sock:init', sock=sock)
+
+                    if sock.isfini:
+                        raise Exception('sock fini on connect()')
+
+                    def fini():
+                        self.connect()
+
+                    with self.lock:
+
+                        self.sock = sock
+
+                        sock.onfini(fini)
+                        self.plex.addPlexSock(sock)
+
+                        for byts in self.txq:
+                            sock.txbytes(byts)
+
+                        self.txq = []
+                        return
+
+                except Exception as e:
+                    logger.warning('link: %r' % (e,))
+                    time.sleep(2)
+
+        finally:
+
+            self.xchg.set(False)

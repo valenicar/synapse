@@ -59,6 +59,9 @@ class Socket(EventBus):
     def send(self, byts):
         return self.sock.send(byts)
 
+    def getTxQ(self):
+        return list(self.txque)
+
     def runTxLoop(self):
         '''
         Run a pass through the non-blocking tx loop.
@@ -73,8 +76,7 @@ class Socket(EventBus):
                 if not self.txque:
                     break
 
-                self.txbuf = self.txque.popleft()
-                self.fire('sock:tx:pop')
+                self.txbuf = self.txque[0]
 
             sent = self.send(self.txbuf)
             self.txbuf = self.txbuf[sent:]
@@ -83,6 +85,9 @@ class Socket(EventBus):
             # we could only send part of the buffer
             if self.txbuf:
                 break
+
+            # fully sent, we can remove it...
+            self.txque.popleft()
 
         if not self.txbuf and not self.txque:
             return False
