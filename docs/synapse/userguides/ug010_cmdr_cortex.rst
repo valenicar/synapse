@@ -54,7 +54,7 @@ Storm is the query language used to interact with data in a Synapse hypergraph. 
 
 * ``--props`` displays the same data as ``ask`` with the addition of the ``<secondary_property>=<value>`` properties from each node. Output is formatted for readability (e.g., epoch timestamps are displayed in ``YYYY/MM/DD hh:mm:ss.mmmm`` format, IPv4 addresses are displayed as dotted-decimal strings).
 
-* ``--raw`` displays all properties and tags associated with the node in JSON format, including universal properties (e.g., ``tufo:form=<form>``), ephemeral properties (if any), and all tags (not simply leaf tags).
+* ``--raw`` displays all properties and tags associated with the node in JSON format, including universal properties (e.g., ``node:form=<form>``), ephemeral properties (if any), and all tags (not simply leaf tags).
   
 *Examples:*
 
@@ -97,7 +97,7 @@ Retrieve (“lift”) the node representing the domain ``woot.com``. Note that t
         "inet:fqdn:host": "woot",
         "inet:fqdn:sfx": 0,
         "inet:fqdn:zone": 1,
-        "tufo:form": "inet:fqdn"
+        "node:form": "inet:fqdn"
       }
     ]
   ]

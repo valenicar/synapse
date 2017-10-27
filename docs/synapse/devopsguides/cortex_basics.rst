@@ -70,9 +70,11 @@ For example, if the model contained a form named "foo:bar", the additional prope
 Universal TuFo Properties
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 Tufos created by a Cortex have several "universal" properties which are automatically populated during creation.
-For example, each tufo will contain a "tufo:form"=<name> property which allows tufo consumers to know which property is primary and how to determine the prefix for secondary properties::
+For example, each tufo will contain a "node:form"=<name> property which allows tufo consumers to know which property is primary and how to determine the prefix for secondary properties::
 
-    ( <guid>, {"foo:bar":"woot","tufo:form":"foo:bar"})
+    ( <guid>, {"foo:bar":"woot","node:form":"foo:bar"})
+
+In addition, each tufo will contain a timestamp indicating when that tufo was created in a given Cortex. That property is denoted as ``node:created``.
 
 TuFo Secondary Properties
 ~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -43,7 +43,7 @@ From a user perspective, you need to know that every node consists of the follow
 
 - A **globally unique identifier** (GUID, identifier, or ID) that is **unique across all nodes in a given hypergraph** (e.g., a given Cortex). The way that node GUIDs are generated makes them “Cortex specific”: this means that the same node (e.g., ``inet:fqdn=woot.com``) in two different Cortexes could have a different GUID in each.
 
-- One or more **universal properties** created automatically by Synapse whenever a new node is generated. The most important universal property for our purpose is the property ``tufo:form=<form>`` that lists the **primary property type** for that node. For example, a node representing an Internet domain (``inet:fqdn``) would have the universal property ``tufo:form=inet:fqdn``.
+- One or more **universal properties** created automatically by Synapse whenever a new node is generated. The most important universal property for our purpose is the property ``node:form=<form>`` that lists the **primary property type** for that node. For example, a node representing an Internet domain (``inet:fqdn``) would have the universal property ``node:form=inet:fqdn``.
 
 - A single **primary property** that consists of the **form** of the node plus its specific value.
 
@@ -55,7 +55,7 @@ From a user perspective, you need to know that every node consists of the follow
 
   Some secondary properties (and their values) are generated and set automatically when a node is created. Other secondary properties may be added or modified at a later time, unless they are defined as “read only” in the form definition.
 
-  Secondary properties form a **relative namespace** beneath the namespace of the node’s form. That is, if the node’s form type is ``tufo:form=foo:bar`` (e.g., this is a ``foo:bar`` node), then all secondary properties will be named in the format ``foo:bar:<secondary_prop>``. In some circumstances (e.g., where the namespace context is clear) secondary properties can be referenced as **relative properties** – that is, as ``:<secondary_prop>`` as opposed to the fully qualified ``foo:bar:<secondary_prop>``. So a secondary property ``foo:bar:baz`` can be referenced by its relative name ``:baz`` in some circumstances.
+  Secondary properties form a **relative namespace** beneath the namespace of the node’s form. That is, if the node’s form type is ``node:form=foo:bar`` (e.g., this is a ``foo:bar`` node), then all secondary properties will be named in the format ``foo:bar:<secondary_prop>``. In some circumstances (e.g., where the namespace context is clear) secondary properties can be referenced as **relative properties** – that is, as ``:<secondary_prop>`` as opposed to the fully qualified ``foo:bar:<secondary_prop>``. So a secondary property ``foo:bar:baz`` can be referenced by its relative name ``:baz`` in some circumstances.
 
 - Optional **ephemeral properties** that may exist temporarily for some special purpose, and do not represent data stored permanently about that node. Ephemeral property names are preceded by a dot ( ``.`` ) to indicate they are ephemeral. The most common ephemeral property is ``.new``, which indicates that a node is newly created.
 
@@ -74,7 +74,7 @@ An example will help to illustrate the concepts above. The command below adds a 
         "inet:fqdn:host": "woowoo",
         "inet:fqdn:sfx": 0,
         "inet:fqdn:zone": 1,
-        "tufo:form": "inet:fqdn"
+        "node:form": "inet:fqdn"
       }
     ]
   ]
@@ -84,7 +84,7 @@ In the output above:
 
 - ``159eb804de045a47220dbde76984f2f4`` is the GUID (identifier) for the node.
 - ``".new": True`` is the ephemeral property showing this is a newly created node.
-- ``"tufo:form": "inet:fqdn"`` lists the type of node (the form for the node).
+- ``"node:form": "inet:fqdn"`` lists the type of node (the form for the node).
 - ``"inet:fqdn": "woowoo.com"`` is the primary property of the node (``<form>=<value>``).
 
 The remaining entries are various node-specific secondary properties and their values (``inet:fqdn:zone``, ``inet:fqdn:domain``, etc.)

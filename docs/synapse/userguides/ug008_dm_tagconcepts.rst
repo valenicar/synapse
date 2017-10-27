@@ -76,7 +76,7 @@ Using the ``--raw`` option will display all tags (not just leaf tags) and proper
         "inet:fqdn:host": "woot",
         "inet:fqdn:sfx": 0,
         "inet:fqdn:zone": 1,
-        "tufo:form": "inet:fqdn"
+        "node:form": "inet:fqdn"
       }
     ]
   ]

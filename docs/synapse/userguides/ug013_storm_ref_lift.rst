@@ -184,7 +184,7 @@ N/A
           "inet:ipv4:asn": 0,
           "inet:ipv4:cc": "??",
           "inet:ipv4:type": "??",
-          "tufo:form": "inet:ipv4"
+          "node:form": "inet:ipv4"
         }
       ]
     ]
