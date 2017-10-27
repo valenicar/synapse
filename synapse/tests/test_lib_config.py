@@ -123,7 +123,7 @@ class ConfTest(SynTest):
                 with s_cortex.openurl('tcp://127.0.0.1:%d/core' % link[1]['port']) as prox:
                     cool = CoolClass(prox)
                     tufo = cool.proxy.formTufoByProp('inet:ipv4', 0)
-                    self.eq(tufo[1]['tufo:form'], 'inet:ipv4')
+                    self.eq(tufo[1]['node:form'], 'inet:ipv4')
                     self.eq(tufo[1]['inet:ipv4'], 0)
 
     def test_lib_config_req(self):

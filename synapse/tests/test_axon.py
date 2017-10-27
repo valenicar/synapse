@@ -1422,7 +1422,7 @@ class AxonFSTest(SynTest):
 
     def test_axon_get_renameprops(self, *args, **kwargs):
         tufo = ('99ac9490ad2e1d4669de1c005a4ec666',
-                {'tufo:form': 'axon:path', 'axon:path:st_ctime': 1491191818, 'axon:path:st_mode': 16893,
+                {'node:form': 'axon:path', 'axon:path:st_ctime': 1491191818, 'axon:path:st_mode': 16893,
                  'axon:path:st_atime': 1491191818, 'axon:path': '/dir', 'axon:path:base': 'dir', 'axon:path:dir': '/',
                  'axon:path:st_nlink': 3, 'axon:path:st_mtime': 1491191818, 'axon:path:blob': 32 * 'a'})
         actual = s_axon.Axon._get_renameprops(tufo)

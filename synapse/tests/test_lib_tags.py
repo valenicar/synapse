@@ -61,8 +61,8 @@ class TagTest(SynTest):
         self.eq(vals, ('foo1',))
 
     def test_tags_subs(self):
-        tufo = ('lolz', {'tufo:form': 'woot'})
+        tufo = ('lolz', {'node:form': 'woot'})
         self.false(s_tags.getTufoSubs(tufo, 'mytag'))
 
-        tufo = ('lolz', {'tufo:form': 'woot', '#mytag': 1})
+        tufo = ('lolz', {'node:form': 'woot', '#mytag': 1})
         self.true(s_tags.getTufoSubs(tufo, 'mytag'))

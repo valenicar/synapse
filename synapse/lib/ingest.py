@@ -620,7 +620,7 @@ class Ingest(EventBus):
                         self.fire('gest:prog', act='tag')
 
                 if info.get('savevar'):
-                    _savevar = tufo[1].get(tufo[1].get('tufo:form'))
+                    _savevar = tufo[1].get(tufo[1].get('node:form'))
 
             except Exception as e:
                 core.exc(e)

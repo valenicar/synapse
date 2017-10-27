@@ -306,7 +306,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         norm, subs = self.getPropNorm(form, valu)
 
         node[1][form] = norm
-        node[1]['tufo:form'] = form
+        node[1]['node:form'] = form
         node[1]['node:created'] = s_common.now()
         node[1]['node:ndef'] = s_common.guid((form, norm))
 
@@ -2181,7 +2181,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         '''
         iden = reqiden(tufo)
 
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
         valu = tufo[1].get(form)
 
         tag, subs = self.getTypeNorm('syn:tag', tag)
@@ -2267,7 +2267,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         if not subprops:
             return tufo
 
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
         valu = tufo[1].get(form)
 
         with self.getCoreXact() as xact:
@@ -2739,7 +2739,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             fulls[prop] = valu
 
             # Set universal node values
-            fulls['tufo:form'] = prop
+            fulls['node:form'] = prop
             fulls['node:created'] = s_common.now()
             fulls['node:ndef'] = s_common.guid((prop, valu))
             # fulls['node:ndef'] = self.reqPropNorm('node:ndef', (prop, valu))[0]
@@ -2866,7 +2866,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             core.delTufo(foob)
 
         '''
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
         valu = tufo[1].get(form)
 
         for name, tick in self.getTufoDsets(tufo):
@@ -3279,7 +3279,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         '''
         reqiden(tufo)
         # add tufo form prefix to props
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
         fulls = self._normTufoProps(form, props, tufo=tufo)
         if not fulls:
             return tufo
@@ -3339,7 +3339,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             tufo = core.incTufoProp(tufo,prop)
 
         '''
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
         prop = form + ':' + prop
 
         if not self.isSetPropOk(prop):
@@ -3352,7 +3352,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         # to allow storage layer optimization
         iden = tufo[0]
 
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
         valu = tufo[1].get(form)
 
         with self.inclock:

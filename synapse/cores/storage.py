@@ -780,9 +780,9 @@ class Storage(s_config.Config):
             newval: Valu to set the the prop=oldval rows to be.
 
         Examples:
-            Rename "tufo:form"="inet:tcp4" to instead be "tufo:form"="inet:tcp4000"::
+            Rename "node:form"="inet:tcp4" to instead be "node:form"="inet:tcp4000"::
 
-                nrows = store.updatePropertyValu('tufo:form', 'inet:tcp4', 'inet:tcp4000')
+                nrows = store.updatePropertyValu('node:form', 'inet:tcp4', 'inet:tcp4000')
 
         Notes:
             This API does fire syn:core:store:up:propval:pre and syn:core:store:up:propval:post

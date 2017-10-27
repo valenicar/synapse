@@ -124,7 +124,7 @@ class SynCmdCoreTest(SynTest):
             self.len(1, resp['data'])
 
             outp = str(outp)
-            terms = ('"tufo:form": "inet:email"', '"inet:email:user": "visi"')
+            terms = ('"node:form": "inet:email"', '"inet:email:user": "visi"')
             for term in terms:
                 self.nn(regex.search(term, outp))
 

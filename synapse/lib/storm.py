@@ -53,7 +53,7 @@ class ShowHelp:
 
         def get(node):
 
-            form = node[1].get('tufo:form')
+            form = node[1].get('node:form')
             full = form + prop
 
             valu = node[1].get(full)
@@ -258,7 +258,7 @@ class Query:
 
         data = self.results.get('data')
 
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
 
         if tufo[0] is not None and self.results['options'].get('uniq'):
             if self.uniq.get(tufo[0]):
@@ -574,7 +574,7 @@ class Runtime(Configable):
                 return retfull, retnorm
 
             def cmpr(tufo):
-                form = tufo[1].get('tufo:form')
+                form = tufo[1].get('node:form')
                 full, norm = _get_full_norm(form, prop, valu)
                 return func(tufo[1].get(full), norm)
 
@@ -818,7 +818,7 @@ class Runtime(Configable):
 
             full = prop
             if isrel:
-                full = tufo[1].get('tufo:form') + prop
+                full = tufo[1].get('node:form') + prop
 
             valu = tufo[1].get(full)
             if valu is None:
@@ -898,7 +898,7 @@ class Runtime(Configable):
 
         def cmpr(tufo):
 
-            form = tufo[1].get('tufo:form')
+            form = tufo[1].get('node:form')
 
             minprop, maxprop = getseen(form)
 
@@ -931,7 +931,7 @@ class Runtime(Configable):
 
             full = prop
             if isrel:
-                form = tufo[1].get('tufo:form')
+                form = tufo[1].get('node:form')
                 full = form + prop
 
             valu = tufo[1].get(full)
@@ -1157,14 +1157,14 @@ class Runtime(Configable):
 
         elif not relsrc:
             for tufo in tufs:
-                form = tufo[1].get('tufo:form')
+                form = tufo[1].get('node:form')
                 valu = tufo[1].get(form)
                 if valu is not None:
                     vals.add(valu)
 
         else:
             for tufo in tufs:
-                form = tufo[1].get('tufo:form')
+                form = tufo[1].get('node:form')
                 valu = tufo[1].get(form + srcp)
                 if valu is not None:
                     vals.add(valu)
@@ -1243,7 +1243,7 @@ class Runtime(Configable):
                 if limt.reached():
                     break
 
-                form = node[1].get('tufo:form')
+                form = node[1].get('node:form')
                 valu = node[1].get(form)
 
                 dkey = (form, valu)
@@ -1292,7 +1292,7 @@ class Runtime(Configable):
                 if limt.reached():
                     break
 
-                form = node[1].get('tufo:form')
+                form = node[1].get('node:form')
                 for prop, info in core.getSubProps(form):
 
                     valu = node[1].get(prop)
@@ -1389,7 +1389,7 @@ class Runtime(Configable):
         formprops = collections.defaultdict(dict)
 
         for node in query.data():
-            formnodes[node[1].get('tufo:form')].append(node)
+            formnodes[node[1].get('node:form')].append(node)
 
         forms = tuple(formnodes.keys())
 
@@ -1526,7 +1526,7 @@ class Runtime(Configable):
 
         limt = self.getLiftLimitHelp(opts.get('limit'))
 
-        tags = {node[1].get('syn:tag') for node in nodes if node[1].get('tufo:form') == 'syn:tag'}
+        tags = {node[1].get('syn:tag') for node in nodes if node[1].get('node:form') == 'syn:tag'}
 
         core = self.getStormCore()
 

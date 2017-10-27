@@ -213,8 +213,8 @@ class SynMod(CoreModule):
         with self.core.getCoreXact():
             now = s_common.now()
             adds = []
-            logger.debug('Lifting tufo:form rows')
-            for i, _, v, t in self.core.store.getRowsByProp('tufo:form'):
+            logger.debug('Lifting node:form rows')
+            for i, _, v, t in self.core.store.getRowsByProp('node:form'):
                 adds.append((i, 'node:created', t, now),)
             logger.debug('Deleting existing node:created rows')
             self.core.store.delRowsByProp('node:created')

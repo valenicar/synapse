@@ -70,7 +70,7 @@ class AskCmd(s_cli.Cmd):
             self.printf('')
 
         def nodevalu(t):
-            return repr(t[1].get(t[1].get('tufo:form')))
+            return repr(t[1].get(t[1].get('node:form')))
 
         nodes = list(sorted(resp.get('data'), key=nodevalu))
 
@@ -78,7 +78,7 @@ class AskCmd(s_cli.Cmd):
             self.printf('(0 results)')
             return
 
-        forms = set([node[1].get('tufo:form') for node in nodes])
+        forms = set([node[1].get('node:form') for node in nodes])
 
         fsize = max([len(f) for f in forms])
 
@@ -104,7 +104,7 @@ class AskCmd(s_cli.Cmd):
 
             for node in nodes:
 
-                form = node[1].get('tufo:form')
+                form = node[1].get('node:form')
                 valu = node[1].get(form)
 
                 leafs = set(s_tufo.tags(node, leaf=True))

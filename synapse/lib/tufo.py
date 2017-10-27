@@ -26,14 +26,14 @@ def props(tufo, pref=None):
         # tuf0 = ('bar', {'namespace:ducksound': 'quack', 'derp': 20, 'baz': 'faz'})
         info = s_tufo.props(tuf0, pref='namespace')
         # info = {'ducksound': 'quack'}
-        tuf1 = s_tufo.tufo('duck', **{'tufo:form': 'animal', 'animal:sound':'quack', 'animal:stype': 'duck'})
-        # tuf1 = ('duck', {'tufo:form': 'animal', 'animal:stype': 'duck', 'animal:sound': 'quack'})
+        tuf1 = s_tufo.tufo('duck', **{'node:form': 'animal', 'animal:sound':'quack', 'animal:stype': 'duck'})
+        # tuf1 = ('duck', {'node:form': 'animal', 'animal:stype': 'duck', 'animal:sound': 'quack'})
         info = s_tufo.props(tuf1)
         # info = {'stype': 'duck', 'sound': 'quack'}
 
     '''
     if pref is None:
-        pref = tufo[1].get('tufo:form')
+        pref = tufo[1].get('node:form')
 
     pref = '%s:' % (pref,)
     plen = len(pref)
@@ -124,7 +124,7 @@ def equal(tuf0, tuf1):
 def ephem(form, fval, **props):
     props = {'%s:%s' % (form, p): v for (p, v) in props.items()}
     props[form] = fval
-    props['tufo:form'] = form
+    props['node:form'] = form
     return (None, props)
 
 def tagged(tufo, tag):
@@ -157,5 +157,5 @@ def ndef(tufo):
         ((str,obj)):    The (<form>,<valu>) tuple for the node
 
     '''
-    form = tufo[1].get('tufo:form')
+    form = tufo[1].get('node:form')
     return form, tufo[1][form]

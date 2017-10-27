@@ -192,7 +192,7 @@ class DumpRowsTest(SynTest):
                 tick = now()
                 for i in range(1, ntufos):
                     iden = guid()
-                    rows.append((iden, 'tufo:form', 'inet:asn', tick))
+                    rows.append((iden, 'node:form', 'inet:asn', tick))
                     rows.append((iden, 'inet:asn', i, tick))
                     rows.append((iden, 'inet:asn:name', '??', tick))
                 core.addRows(rows)

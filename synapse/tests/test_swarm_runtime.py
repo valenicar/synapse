@@ -264,15 +264,15 @@ class SwarmRunTest(SwarmRunBase):
         tufos = answ.get('data')
 
         self.eq(len(tufos), 4)
-        self.eq(tufos[0][1].get('tufo:form'), 'strform')
+        self.eq(tufos[0][1].get('node:form'), 'strform')
 
         # use the filter code for has()
-        answ = env.runt.ask('tufo:form +strform')
+        answ = env.runt.ask('node:form +strform')
 
         tufos = answ.get('data')
 
         self.eq(len(tufos), 4)
-        self.eq(tufos[0][1].get('tufo:form'), 'strform')
+        self.eq(tufos[0][1].get('node:form'), 'strform')
 
         env.fini()
 

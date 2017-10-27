@@ -128,7 +128,7 @@ class DataModel(s_types.TypeLib):
         Initialize universal properties in the DataModel.
         These properties are not bound to a specific form and may be present on a node.
         '''
-        self.addPropDef('tufo:form',
+        self.addPropDef('node:form',
                         ptype='str',
                         doc='The form of the node',
                         ro=1,

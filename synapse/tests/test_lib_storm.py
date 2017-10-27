@@ -531,11 +531,11 @@ class StormTest(SynTest):
 
             nodes = core.eval('inet:dns:a jointags(inet:fqdn, limit=2)')
             self.eq(len(nodes), 1)
-            self.eq(nodes[0][1].get('tufo:form'), 'inet:fqdn')
+            self.eq(nodes[0][1].get('node:form'), 'inet:fqdn')
 
             nodes = core.eval('inet:dns:a jointags(ps:tokn,inet:fqdn)')
             self.eq(len(nodes), 1)
-            self.eq(nodes[0][1].get('tufo:form'), 'inet:fqdn')
+            self.eq(nodes[0][1].get('node:form'), 'inet:fqdn')
 
             nodes = core.eval('inet:dns:a jointags(ps:tokn)')
             self.eq(len(nodes), 0)

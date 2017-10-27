@@ -661,10 +661,10 @@ class CortexBaseTest(SynTest):
         rows = []
         tick = now()
         newrows = [
-            ('00000000000000000000000000000000', 'tufo:form', 'inet:asn', tick),
+            ('00000000000000000000000000000000', 'node:form', 'inet:asn', tick),
             ('00000000000000000000000000000000', 'inet:asn', 1, tick),
             ('00000000000000000000000000000000', 'inet:asn:name', 'Lagavulin Internet Co.', tick),
-            ('ffffffffffffffffffffffffffffffff', 'tufo:form', 'inet:asn', tick),
+            ('ffffffffffffffffffffffffffffffff', 'node:form', 'inet:asn', tick),
             ('ffffffffffffffffffffffffffffffff', 'inet:asn', 200, tick),
             ('ffffffffffffffffffffffffffffffff', 'inet:asn:name', 'Laphroaig Byte Minery Limited', tick)
         ]
@@ -682,14 +682,14 @@ class CortexBaseTest(SynTest):
         self.eq(bottom_rows, [
             ('00000000000000000000000000000000', 'inet:asn', 1, tick),
             ('00000000000000000000000000000000', 'inet:asn:name', 'Lagavulin Internet Co.', tick),
-            ('00000000000000000000000000000000', 'tufo:form', 'inet:asn', tick),
+            ('00000000000000000000000000000000', 'node:form', 'inet:asn', tick),
         ])
         top_rows = rows[-3:]
         top_rows.sort(key=lambda x: x[1])
         self.eq(top_rows, [
             ('ffffffffffffffffffffffffffffffff', 'inet:asn', 200, tick),
             ('ffffffffffffffffffffffffffffffff', 'inet:asn:name', 'Laphroaig Byte Minery Limited', tick),
-            ('ffffffffffffffffffffffffffffffff', 'tufo:form', 'inet:asn', tick),
+            ('ffffffffffffffffffffffffffffffff', 'node:form', 'inet:asn', tick),
         ])
 
         # form some nodes for doing in-place prop updates on with store.updateProperty()
@@ -714,21 +714,21 @@ class CortexBaseTest(SynTest):
             self.notin('inet:tcp4:port', node[1])
 
         # Do a updatePropertValu call to replace a named property with another valu
-        unodes = core.getTufosByProp('tufo:form', 'inet:tcp4')
+        unodes = core.getTufosByProp('node:form', 'inet:tcp4')
         self.len(10, unodes)
-        n = core.store.updatePropertyValu('tufo:form', 'inet:tcp4', 'inet:stateful4')
+        n = core.store.updatePropertyValu('node:form', 'inet:tcp4', 'inet:stateful4')
         self.eq(n, 10)
-        unodes = core.getTufosByProp('tufo:form', 'inet:tcp4')
+        unodes = core.getTufosByProp('node:form', 'inet:tcp4')
         self.len(0, unodes)
         unodes = core.getTufosByProp('inet:tcp4')
         self.len(10, unodes)
         for node in unodes:
-            self.eq(node[1].get('tufo:form'), 'inet:stateful4')
+            self.eq(node[1].get('node:form'), 'inet:stateful4')
             self.isin('inet:tcp4', node[1])
-        unodes = core.getTufosByProp('tufo:form', 'inet:stateful4')
+        unodes = core.getTufosByProp('node:form', 'inet:stateful4')
         self.len(10, unodes)
         for node in unodes:
-            self.eq(node[1].get('tufo:form'), 'inet:stateful4')
+            self.eq(node[1].get('node:form'), 'inet:stateful4')
             self.isin('inet:tcp4', node[1])
 
     def runtufobydefault(self, core):
@@ -1518,7 +1518,7 @@ class CortexTest(SynTest):
                                                  ('inet:ipv4', 0)))
             self.nn(core1.getTufoByProp('inet:web:post',
                                         ('vertex.link/user', 'mypost 0.0.0.0')))
-            self.eq(postref_tufo[1]['tufo:form'], 'inet:web:postref')
+            self.eq(postref_tufo[1]['node:form'], 'inet:web:postref')
             self.eq(postref_tufo[1]['inet:web:postref'], '804ec63392f4ea031bb3fd004dee209d')
             self.eq(postref_tufo[1]['inet:web:postref:post'], '68bc4607f0518963165536921d6e86fa')
             self.eq(postref_tufo[1]['inet:web:postref:xref'], 'inet:ipv4=0.0.0.0')
@@ -1599,7 +1599,7 @@ class CortexTest(SynTest):
             # we can make nodes from props (not forms!)
             node0 = core.formTufoByProp('foo:baz:fqdn', 'woot.com')
             self.nn(node0)
-            self.eq(node0[1].get('tufo:form'), 'foo:baz:fqdn')
+            self.eq(node0[1].get('node:form'), 'foo:baz:fqdn')
             self.eq(node0[1].get('foo:baz:fqdn'), 'woot.com')
 
             # Now re-enable enforce
@@ -2428,7 +2428,7 @@ class CortexTest(SynTest):
             self.nn(core.getTypeInst('foo:bar'))
 
             node = core.formTufoByProp('foo:bar', 'I am a bar foo.')
-            self.eq(node[1].get('tufo:form'), 'foo:bar')
+            self.eq(node[1].get('node:form'), 'foo:bar')
             self.gt(node[1].get('node:created'), 1483228800000)
             self.eq(node[1].get('foo:bar'), 'I am a bar foo.')
             self.none(node[1].get('foo:bar:duck'))
@@ -2478,7 +2478,7 @@ class CortexTest(SynTest):
                 self.nn(core.getTypeInst('foo:bar'))
 
                 node = core.formTufoByProp('foo:bar', 'I am a bar foo.')
-                self.eq(node[1].get('tufo:form'), 'foo:bar')
+                self.eq(node[1].get('node:form'), 'foo:bar')
                 self.gt(node[1].get('node:created'), 1483228800000)
                 self.eq(node[1].get('foo:bar'), 'I am a bar foo.')
                 self.none(node[1].get('foo:bar:duck'))
@@ -2523,7 +2523,7 @@ class CortexTest(SynTest):
                 self.nn(core.getTypeInst('foo:bar'))
 
                 node = core.formTufoByProp('foo:bar', 'I am a bar foo.')
-                self.eq(node[1].get('tufo:form'), 'foo:bar')
+                self.eq(node[1].get('node:form'), 'foo:bar')
                 self.gt(node[1].get('node:created'), 1483228800000)
                 self.eq(node[1].get('foo:bar'), 'I am a bar foo.')
                 self.none(node[1].get('foo:bar:duck'))
@@ -2645,14 +2645,14 @@ class CortexTest(SynTest):
 
                     self.isinstance(actual[0], tuple)
                     self.eq(len(actual[0]), 2)
-                    self.eq(actual[0][1]['tufo:form'], 'inet:fqdn')
+                    self.eq(actual[0][1]['node:form'], 'inet:fqdn')
                     self.gt(actual[0][1]['node:created'], 1483228800000)
                     self.eq(actual[0][1]['inet:fqdn'], 'vertex.link')
                     self.eq(actual[0][1]['inet:fqdn:zone'], 1)
 
                     self.isinstance(actual[1], tuple)
                     self.eq(actual[1][0], None)
-                    self.eq(actual[1][1]['tufo:form'], 'syn:err')
+                    self.eq(actual[1][1]['node:form'], 'syn:err')
                     # NOTE: ephemeral data does not get node:created
                     self.eq(actual[1][1]['syn:err'], 'BadTypeValu')
                     for s in ['BadTypeValu', 'name=', 'inet:url', 'valu=', 'bad']:
@@ -2660,7 +2660,7 @@ class CortexTest(SynTest):
 
                     self.isinstance(actual[2], tuple)
                     self.eq(actual[2][0], None)
-                    self.eq(actual[2][1]['tufo:form'], 'syn:err')
+                    self.eq(actual[2][1]['node:form'], 'syn:err')
                     # NOTE: ephemeral data does not get node:created
                     self.eq(actual[2][1]['syn:err'], 'NoSuchForm')
                     for s in ['NoSuchForm', 'name=', 'bad']:
@@ -2828,7 +2828,7 @@ class CortexTest(SynTest):
     def test_cortex_formtufobytufo(self):
         with self.getRamCore() as core:
             _t0iden = guid()
-            _t0 = (_t0iden, {'tufo:form': 'inet:ipv4', 'inet:ipv4': '1.2.3.4', 'inet:ipv4:asn': 1024})
+            _t0 = (_t0iden, {'node:form': 'inet:ipv4', 'inet:ipv4': '1.2.3.4', 'inet:ipv4:asn': 1024})
             t0 = core.formTufoByTufo(_t0)
             form, valu = s_tufo.ndef(t0)
             self.eq(form, 'inet:ipv4')
@@ -2837,7 +2837,7 @@ class CortexTest(SynTest):
             self.eq(t0[1].get('inet:ipv4:cc'), '??')
             self.ne(t0[0], _t0iden)
 
-            t1 = core.formTufoByTufo((None, {'tufo:form': 'strform', 'strform': 'oh hai',
+            t1 = core.formTufoByTufo((None, {'node:form': 'strform', 'strform': 'oh hai',
                                              'strform:haha': 1234, 'strform:foo': 'sup'}))
 
             form, valu = s_tufo.ndef(t1)
@@ -3036,7 +3036,7 @@ class CortexTest(SynTest):
             node = core.getTufoByProp('node:ndef', '90ec8b92deda626d31e2d63e8dbf48be')
             self.eq(node[0], myfo[0])
 
-            node = core.getTufoByProp('tufo:form', 'syn:core')
+            node = core.getTufoByProp('node:form', 'syn:core')
             self.eq(node[0], myfo[0])
 
             nodes = core.getTufosByProp('node:created', myfo[1].get('node:created'))
@@ -3242,7 +3242,7 @@ class StorageTest(SynTest):
                 rows = []
                 tick = s_common.now()
                 rows.append(('1234', 'foo:bar:baz', 'yes', tick))
-                rows.append(('1234', 'tufo:form', 'foo:bar', tick))
+                rows.append(('1234', 'node:form', 'foo:bar', tick))
                 rows.append(('1234', 'node:created', 1483228800000, tick))
                 store.addRows(rows)
 
@@ -3250,7 +3250,7 @@ class StorageTest(SynTest):
             with s_cortex.openurl(url) as core:
                 node = core.getTufoByIden('1234')
                 self.nn(node)
-                self.eq(node[1].get('tufo:form'), 'foo:bar')
+                self.eq(node[1].get('node:form'), 'foo:bar')
                 self.eq(node[1].get('node:created'), 1483228800000)
                 self.eq(node[1].get('foo:bar:baz'), 'yes')
 
@@ -3266,7 +3266,7 @@ class StorageTest(SynTest):
                 rows = []
                 tick = s_common.now()
                 rows.append(('1234', 'foo:bar:baz', 'yes', tick))
-                rows.append(('1234', 'tufo:form', 'foo:bar', tick))
+                rows.append(('1234', 'node:form', 'foo:bar', tick))
                 rows.append(('1234', 'node:created', 1483228800000, tick))
                 store.addRows(rows)
 
@@ -3274,7 +3274,7 @@ class StorageTest(SynTest):
             with s_cortex.openurl(url) as core:
                 node = core.getTufoByIden('1234')
                 self.nn(node)
-                self.eq(node[1].get('tufo:form'), 'foo:bar')
+                self.eq(node[1].get('node:form'), 'foo:bar')
                 self.eq(node[1].get('node:created'), 1483228800000)
                 self.eq(node[1].get('foo:bar:baz'), 'yes')
 

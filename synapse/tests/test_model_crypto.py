@@ -31,7 +31,7 @@ class CryptoModelTest(SynTest):
         tufo = ('', {})
         with self.getRamCore() as core:
             tufo = core.formTufoByProp(prop, valu, **props)
-        self.eq(tufo[1].get('tufo:form'), 'rsa:key')
+        self.eq(tufo[1].get('node:form'), 'rsa:key')
         self.eq(tufo[1].get('rsa:key'), HEXSTR_RSA_KEY)
         self.eq(tufo[1].get('rsa:key:mod'), HEXSTR_MODULUS)
         self.eq(tufo[1].get('rsa:key:bits'), BITS)

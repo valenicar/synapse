@@ -68,25 +68,25 @@ class SynModelTest(SynTest):
         tick = now()
         rows = [(iden0, 'inet:ipv4:type', '??', tick),
                 (iden0, 'inet:ipv4', 16909060, tick),
-                (iden0, 'tufo:form', 'inet:ipv4', tick),
+                (iden0, 'node:form', 'inet:ipv4', tick),
                 (iden0, 'inet:ipv4:cc', '??', tick),
                 (iden0, 'inet:ipv4:asn', -1, tick),
                 (iden1, 'file:bytes', 'd41d8cd98f00b204e9800998ecf8427e', tick),
                 (iden1, 'file:bytes:mime', '??', tick),
                 (iden1, 'file:bytes:md5', 'd41d8cd98f00b204e9800998ecf8427e', tick),
-                (iden1, 'tufo:form', 'file:bytes', tick),
+                (iden1, 'node:form', 'file:bytes', tick),
                 (iden2, 'file:txtref:xref:inet:ipv4', 16909060, tick),
-                (iden2, 'tufo:form', 'file:txtref', tick),
+                (iden2, 'node:form', 'file:txtref', tick),
                 (iden2, 'file:txtref', 'd7b82a6328c2483bf583871031f573bf', tick),
                 (iden2, 'file:txtref:file', 'd41d8cd98f00b204e9800998ecf8427e', tick),
                 (iden2, 'file:txtref:xtype', 'inet:ipv4', tick),
                 (iden3, 'file:imgof:xref:inet:fqdn', 'woot.com', tick),
-                (iden3, 'tufo:form', 'file:imgof', tick),
+                (iden3, 'node:form', 'file:imgof', tick),
                 (iden3, 'file:imgof', 'ccea21ac0a1442aeffde9fd3893625ab', tick),
                 (iden3, 'file:imgof:file', 'd41d8cd98f00b204e9800998ecf8427e', tick),
                 (iden3, 'file:imgof:xtype', 'inet:fqdn', tick),
                 (iden4, 'file:imgof:xref:inet:fqdn', 'vertex.link', tick),
-                (iden4, 'tufo:form', 'file:imgof', tick),
+                (iden4, 'node:form', 'file:imgof', tick),
                 (iden4, 'file:imgof', 'ccea21ac0a1442aeffde9fd3893625ab', tick),
                 (iden4, 'file:imgof:file', 'd41d8cd98f00b204e9800998ecf8427e', tick),
                 ]
@@ -139,14 +139,14 @@ class SynModelTest(SynTest):
         rows = [
             (iden0, 'inet:ipv4:type', '??', tick),
             (iden0, 'inet:ipv4', 16909060, tick),
-            (iden0, 'tufo:form', 'inet:ipv4', tick),
+            (iden0, 'node:form', 'inet:ipv4', tick),
             (iden0, 'inet:ipv4:cc', '??', tick),
             (iden0, 'inet:ipv4:asn', -1, tick),
 
             (iden1, 'file:bytes', 'd41d8cd98f00b204e9800998ecf8427e', tick),
             (iden1, 'file:bytes:mime', '??', tick),
             (iden1, 'file:bytes:md5', 'd41d8cd98f00b204e9800998ecf8427e', tick),
-            (iden1, 'tufo:form', 'file:bytes', tick),
+            (iden1, 'node:form', 'file:bytes', tick),
             (iden1, 'node:created', tick, tick),  # NOTE: this row should not exist pre-migration
         ]
 
@@ -165,10 +165,10 @@ class SynModelTest(SynTest):
                 # 1 file:bytes, 1 inet:ipv4
                 self.ge(len(core.eval('node:created')), 3)
 
-                tufos = core.eval('node:created +tufo:form=inet:ipv4')
-                self.len(1, tufos)
+                tufos = core.eval('node:created +node:form=inet:ipv4')
+                self.eq(len(tufos), 1)
                 iden, props = tufos[0]
-                self.eq(props['tufo:form'], 'inet:ipv4')
+                self.eq(props['node:form'], 'inet:ipv4')
                 self.eq(props['node:created'], tick)
                 self.eq(props['inet:ipv4'], 16909060)
                 self.eq(props['inet:ipv4:asn'], -1)
@@ -177,10 +177,10 @@ class SynModelTest(SynTest):
                 _, _, valu, stamp = rows[0]
                 self.gt(stamp, valu)  # node:created row's stamp will be higher than its valu
 
-                tufos = core.eval('node:created +tufo:form=file:bytes')
-                self.len(1, tufos)
+                tufos = core.eval('node:created +node:form=file:bytes')
+                self.eq(len(tufos), 1)
                 props = tufos[0][1]
-                self.eq(props['tufo:form'], 'file:bytes')
+                self.eq(props['node:form'], 'file:bytes')
                 self.eq(props['node:created'], tick)
                 self.eq(props['file:bytes'], 'd41d8cd98f00b204e9800998ecf8427e')
                 self.eq(props['file:bytes:mime'], '??')
@@ -196,7 +196,7 @@ class SynModelTest(SynTest):
         rows = [
             (iden0, 'inet:ipv4:type', '??', tick),
             (iden0, 'inet:ipv4', 16909060, tick),
-            (iden0, 'tufo:form', 'inet:ipv4', tick),
+            (iden0, 'node:form', 'inet:ipv4', tick),
             (iden0, 'node:created', tick, tick),
             (iden0, 'inet:ipv4:cc', '??', tick),
             (iden0, 'inet:ipv4:asn', -1, tick),
@@ -204,7 +204,7 @@ class SynModelTest(SynTest):
             (iden1, 'file:bytes', 'd41d8cd98f00b204e9800998ecf8427e', tick),
             (iden1, 'file:bytes:mime', '??', tick),
             (iden1, 'file:bytes:md5', 'd41d8cd98f00b204e9800998ecf8427e', tick),
-            (iden1, 'tufo:form', 'file:bytes', tick),
+            (iden1, 'node:form', 'file:bytes', tick),
             (iden1, 'node:created', tick, tick),
         ]
 
@@ -224,12 +224,12 @@ class SynModelTest(SynTest):
                 # 1 file:bytes, 1 inet:ipv4, 1 syn:core
                 self.ge(len(core.eval('node:ndef')), 3)
 
-                tufos = core.eval('node:ndef +tufo:form=inet:ipv4')
+                tufos = core.eval('node:ndef +node:form=inet:ipv4')
                 self.eq(len(tufos), 1)
                 node = tufos[0]
                 self.eq(node[1].get('node:ndef'), 'cbc65d5e373205b31b9be06155c186db')
 
-                tufos = core.eval('node:ndef +tufo:form=file:bytes')
+                tufos = core.eval('node:ndef +node:form=file:bytes')
                 self.eq(len(tufos), 1)
                 node = tufos[0]
                 self.eq(node[1].get('node:ndef'), 'ab91b96076bd6f2b1acd5b19f0e06d05')

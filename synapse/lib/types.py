@@ -134,7 +134,7 @@ class GuidType(DataType):
             self._raiseBadValu(text, mesg='no result for guid resolver',
                                alias=self._guid_alias)
 
-        iden = node[1].get(node[1].get('tufo:form'))
+        iden = node[1].get(node[1].get('node:form'))
         return iden, {}
 
     def _norm_list(self, valu, oldval=None):

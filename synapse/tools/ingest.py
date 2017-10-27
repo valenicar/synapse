@@ -46,7 +46,7 @@ def main(argv, outp=None):
 
     def _print_tufo_add(mesg):
         tufo = mesg[1].get('node')
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
         outp.printf('add: %s=%s' % (form, tufo[1].get(form)))
         for prop, valu in sorted(s_tufo.props(tufo).items()):
             outp.printf('       :%s = %s' % (prop, valu))
@@ -54,7 +54,7 @@ def main(argv, outp=None):
     def _print_tufo_tag_add(mesg):
         tag = mesg[1].get('tag')
         tufo = mesg[1].get('node')
-        form = tufo[1].get('tufo:form')
+        form = tufo[1].get('node:form')
         outp.printf('tag: %s=%s (%s)' % (form, tufo[1].get(form), tag))
 
     progtot = collections.defaultdict(int)

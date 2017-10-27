@@ -61,7 +61,7 @@ class TestTufoProps(SynTest):
     def setUp(self):
         self.t1 = s_tufo.tufo('bar', baz='faz', derp=20)
         self.t2 = s_tufo.tufo('bar', **{'baz': 'faz', 'derp': 20, 'namespace:sound': 'quack'})
-        self.t3 = ('duck', {'tufo:form': 'animal', 'animal:stype': 'duck', 'animal:sound': 'quack'})
+        self.t3 = ('duck', {'node:form': 'animal', 'animal:stype': 'duck', 'animal:sound': 'quack'})
 
     def test_default_props(self):
         '''

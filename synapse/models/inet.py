@@ -510,7 +510,7 @@ class InetMod(CoreModule):
                 fqdn = node[1].get('inet:whois:rec:fqdn')
                 asof = node[1].get('inet:whois:rec:asof')
                 rows = [
-                    (iden, 'tufo:form', 'inet:whois:recns', tick),
+                    (iden, 'node:form', 'inet:whois:recns', tick),
                     (iden, 'inet:whois:recns', pprop, tick),
                     (iden, 'inet:whois:recns:ns', ns, tick),
                     (iden, 'inet:whois:recns:rec', rec, tick),
@@ -735,7 +735,7 @@ class InetMod(CoreModule):
             xref_propsrc = _getXrefPropSrc()
 
             for old, new in forms:
-                self.core.store.updatePropertyValu('tufo:form', old, new)
+                self.core.store.updatePropertyValu('node:form', old, new)
                 _updateTagForm(old, new)
                 _updateXref(xref_propsrc, old, new)
 
