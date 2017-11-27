@@ -224,12 +224,12 @@ class SynModelTest(SynTest):
                 # 1 file:bytes, 1 inet:ipv4, 1 syn:core
                 self.ge(len(core.eval('node:ndef')), 3)
 
-                tufos = core.eval('node:ndef +tufo:form=inet:ipv4')
+                tufos = core.eval('node:ndef +node:form=inet:ipv4')
                 self.eq(len(tufos), 1)
                 node = tufos[0]
                 self.eq(node[1].get('node:ndef'), 'cbc65d5e373205b31b9be06155c186db')
 
-                tufos = core.eval('node:ndef +tufo:form=file:bytes')
+                tufos = core.eval('node:ndef +node:form=file:bytes')
                 self.eq(len(tufos), 1)
                 node = tufos[0]
                 self.eq(node[1].get('node:ndef'), 'ab91b96076bd6f2b1acd5b19f0e06d05')

@@ -52,7 +52,7 @@ def prop(node, prop):
     '''
     if prop[0] != ':':
         return node[1].get(prop)
-    return node[1].get(node[1].get('tufo:form') + prop)
+    return node[1].get(node[1].get('node:form') + prop)
 
 def tags(tufo, leaf=False):
 

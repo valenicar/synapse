@@ -1330,7 +1330,7 @@ class StormTest(SynTest):
             self.len(2, nodes)
             for node in nodes:
                 self.none(node[0])
-                self.eq(node[1].get('tufo:form'), 'task')
+                self.eq(node[1].get('node:form'), 'task')
                 self.isin(node[1].get('task'), ('hehe:haha', 'wow'))
 
 class LimitTest(SynTest):

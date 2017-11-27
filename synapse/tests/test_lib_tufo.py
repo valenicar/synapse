@@ -87,7 +87,7 @@ class TestTufoProps(SynTest):
 
     def test_lib_tufo_prop(self):
 
-        node = ('asdf', {'tufo:form': 'foo:bar', 'foo:bar:baz': 10})
+        node = ('asdf', {'node:form': 'foo:bar', 'foo:bar:baz': 10})
 
         self.eq(s_tufo.prop(node, ':baz'), 10)
         self.eq(s_tufo.prop(node, 'foo:bar:baz'), 10)
