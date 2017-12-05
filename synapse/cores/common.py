@@ -80,6 +80,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         # a cortex may have a ref to an axon
         self.axon = None
         self.seedctors = {}
+        self.membranes = {}
 
         self.modules = [(ctor, modconf) for ctor, smod, modconf in s_modules.ctorlist]
         self.modsdone = False
@@ -504,7 +505,8 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             ('log:save', {'type': 'bool', 'asloc': 'logsave', 'defval': 0,
                           'doc': 'Enables saving exceptions to the cortex as syn:log nodes'}),
             ('log:level', {'type': 'int', 'asloc': 'loglevel', 'defval': 0, 'doc': 'Filters log events to >= level'}),
-            ('modules', {'defval': (), 'doc': 'An optional list of (pypath,conf) tuples for synapse modules to load'})
+            ('modules', {'defval': (), 'doc': 'An optional list of (pypath,conf) tuples for synapse modules to load'}),
+            ('membranes', {'defval': (), 'doc': 'An optional list of (name, {rules:[]}) membrane definitions'}),
         )
         return confdefs
 
