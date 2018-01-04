@@ -18,6 +18,7 @@ import synapse.telepath as s_telepath
 import synapse.lib.scope as s_scope
 import synapse.lib.config as s_config
 import synapse.lib.socket as s_socket
+import synapse.lib.msgpack as s_msgpack
 import synapse.lib.reflect as s_reflect
 import synapse.lib.service as s_service
 import synapse.lib.session as s_session
@@ -76,6 +77,7 @@ class DmonConf:
 
         self.forkperm = {}
         self.evalcache = {}
+        self._fini_items = []
 
         self.onfini(self._onDmonFini)
 
@@ -100,6 +102,11 @@ class DmonConf:
     def _onDmonFini(self):
         for name in list(self.forks.keys()):
             self.killDmonFork(name, perm=True)
+
+        # reverse the ebus items to fini them in LIFO order
+        for item in reversed(self._fini_items):
+            item.fini()
+        self._fini_items = []
 
     def _addConfValu(self, conf, prop):
         valu = conf.get(prop)
@@ -234,6 +241,9 @@ class DmonConf:
                 item = self.dmoneval(url)
 
             self.locs[name] = item
+            if isinstance(item, EventBus):
+                # Insert ebus items in FIFO order
+                self._fini_items.append(item)
 
             # check for a ctor opt that wants us to load a config dict by name
             cfgname = copts.get('config')
@@ -391,12 +401,6 @@ class Daemon(EventBus, DmonConf):
     def setUserAuth(self, auth):
         self.auth = auth
 
-    def getNewSess(self):
-        return self.cura.new()
-
-    def getSessByIden(self, iden):
-        return self.cura.get(iden)
-
     def _onTeleYieldFini(self, sock, mesg):
         iden = mesg[1].get('iden')
         self._dmon_yields.discard(iden)
@@ -408,19 +412,6 @@ class Daemon(EventBus, DmonConf):
         # examples of additional config elements
 
         {
-            "sessions":{
-
-                "comment":"Maxtime (if set) sets the maxtime for the session cache (in seconds)",
-                "maxtime":12345,
-
-                "comment":"Curator (if set) uses dmoneval to set the session curator",
-                "curator":"tcp://host.com:8899/synsess",
-
-                "comment":"Comment (if set) saves sessions to the given path (sqlite cortex)",
-                "savefile":"sessions.sql3"
-
-            },
-
             "share":(
                 ('fooname',{'optname':optval}),
                 ...
@@ -448,11 +439,6 @@ class Daemon(EventBus, DmonConf):
             fini = opts.get('onfini', False)
             self.share(asname, item, fini=fini)
 
-        # process the sessions config info
-        sessinfo = conf.get('sessions')
-        if sessinfo is not None:
-            self._loadSessConf(sessinfo)
-
         # process a few daemon specific options
         for url in conf.get('listen', ()):
             if isinstance(url, str):
@@ -461,26 +447,6 @@ class Daemon(EventBus, DmonConf):
 
             url, opts = url
             self.listen(url, **opts)
-
-    def _loadSessConf(self, info):
-        # curator over-ride wins
-        curaname = info.get('curator')
-
-        # If it's a local, go with it...
-        if curaname is not None:
-            self.cura = self.dmoneval(curaname)
-
-        maxtime = info.get('maxtime')
-        if maxtime is not None:
-            self.cura.setMaxTime(maxtime)
-
-        savefile = info.get('savefile')
-        if savefile is not None:
-            core = s_cortex.openurl('sqlite:///%s' % savefile)
-            core.setConfOpt('enforce', 0)
-            self.cura.setSessCore(core)
-
-            self.onfini(core.fini)
 
     def _onTelePushMesg(self, sock, mesg):
 
@@ -553,8 +519,7 @@ class Daemon(EventBus, DmonConf):
             func(sock, mesg)
 
         except Exception as e:
-            traceback.print_exc()
-            logger.error('_runLinkSockMesg: %s', e)
+            logger.exception('exception in _runLinkSockMesg with mesg %s', mesg)
 
     def _genChalSign(self, mesg):
         '''
@@ -572,7 +537,7 @@ class Daemon(EventBus, DmonConf):
 
     def _onSockGzipMesg(self, sock, mesg):
         data = zlib.decompress(mesg[1].get('data'))
-        mesg = s_common.msgunpack(data)
+        mesg = s_msgpack.un(data)
         self._distSockMesg(sock, mesg)
 
     def _onTeleSynMesg(self, sock, mesg):
@@ -594,14 +559,8 @@ class Daemon(EventBus, DmonConf):
             info = s_common.errinfo('BadMesgVers', 'server %r != client %r' % (s_telepath.telever, vers))
             return sock.tx(s_common.tufo('job:done', jid=jid, **info))
 
-        sess = None
-
         iden = mesg[1].get('sess')
-        if iden is not None:
-            sess = self.getSessByIden(iden)
-
-        if sess is None:
-            sess = self.getNewSess()
+        sess = self.cura.get(iden)
 
         ret = {
             'sess': sess.iden,
@@ -618,7 +577,7 @@ class Daemon(EventBus, DmonConf):
         if not sess.get('user'):
             nonce = s_common.guid()
             ret['nonce'] = nonce
-            sess.put('nonce', nonce)
+            sess.set('nonce', nonce)
 
         return sock.tx(s_common.tufo('job:done', jid=jid, ret=ret))
 
@@ -745,7 +704,9 @@ class Daemon(EventBus, DmonConf):
                     name = s_reflect.getMethName(func)
                     raise s_common.TeleClientSide(name=name)
 
+                logger.debug('Executing %s/%r for [%r]', jid, func, user)
                 ret = func(*args, **kwargs)
+                logger.debug('Done executing %s', jid)
 
                 # handle generator returns specially
                 if isinstance(ret, types.GeneratorType):
@@ -832,10 +793,22 @@ class Daemon(EventBus, DmonConf):
         '''
         Share an object via the telepath protocol.
 
-        Example:
+        Args:
+            name (str): Name of the shared object
+            item (object): Shared object
+            fini (bool): If true, call item.fini() during the daemon fini().
 
-            dmon.share('foo', Foo())
+        Examples:
+            Share an object named 'foo' from the Foo class::
 
+                dmon.share('foo', Foo())
+
+            Share an eventbus named 'ebus' and fini it on daemon shutdown::
+
+                dmon.share('ebus', EventBus(), fini=True).
+
+        Returns:
+            None
         '''
         self.shared[name] = item
         self.reflect[name] = s_reflect.getItemInfo(item)

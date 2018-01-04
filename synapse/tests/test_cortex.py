@@ -488,6 +488,16 @@ class CortexBaseTest(SynTest):
         self.eq(len(core.eval('strform:foo')), 0)
         self.eq(len(core.eval('strform:bar')), 2)
 
+        # Ensure we can store data at the boundary of 64 bit integers
+        node = core.formTufoByProp('intform', -9223372036854775808)
+        self.nn(node)
+        core.delTufo(node)
+        node = core.formTufoByProp('intform', 9223372036854775807)
+        self.nn(node)
+        core.delTufo(node)
+        self.raises(BadTypeValu, core.formTufoByProp, 'intform', -9223372036854775809)
+        self.raises(BadTypeValu, core.formTufoByProp, 'intform', 9223372036854775808)
+
         # Disable on() events registered in the test.
         core.off('node:form', formtufo)
         core.off('node:form', formfqdn)
@@ -734,6 +744,8 @@ class CortexBaseTest(SynTest):
         self.eq(len(core.getTufosBy('in', 'default_foo:p0', [5])), 2)
         self.eq(len(core.getTufosBy('in', 'default_foo:p0', [4, 5])), 3)
         self.eq(len(core.getTufosBy('in', 'default_foo:p0', [4, 5, 6, 7], limit=4)), 4)
+        self.eq(len(core.getTufosBy('in', 'default_foo:p0', [4, 5, 6, 7], limit=1)), 1)
+        self.eq(len(core.getTufosBy('in', 'default_foo:p0', [4, 5, 6, 7], limit=0)), 0)
         self.eq(len(core.getTufosBy('in', 'default_foo:p0', [5], limit=1)), 1)
         self.eq(len(core.getTufosBy('in', 'default_foo:p0', [], limit=1)), 0)
 
@@ -765,6 +777,19 @@ class CortexBaseTest(SynTest):
         self.eq(len(core.getTufosBy('gt', 'default_foo:p0', 6)), 1)
         self.eq(len(core.getTufosBy('ge', 'default_foo:p0', 6)), 2)
         self.eq(len(core.getTufosBy('ge', 'default_foo:p0', 5)), 4)
+        # By LT/LE/GE/GT with limits
+        self.len(1, core.getTufosBy('lt', 'default_foo:p0', 6, limit=1))
+        self.len(1, core.getTufosBy('le', 'default_foo:p0', 6, limit=1))
+        self.len(1, core.getTufosBy('le', 'default_foo:p0', 7, limit=1))
+        self.len(1, core.getTufosBy('gt', 'default_foo:p0', 6, limit=1))
+        self.len(1, core.getTufosBy('ge', 'default_foo:p0', 6, limit=1))
+        self.len(1, core.getTufosBy('ge', 'default_foo:p0', 5, limit=1))
+        self.len(0, core.getTufosBy('lt', 'default_foo:p0', 6, limit=0))
+        self.len(0, core.getTufosBy('le', 'default_foo:p0', 6, limit=0))
+        self.len(0, core.getTufosBy('le', 'default_foo:p0', 7, limit=0))
+        self.len(0, core.getTufosBy('gt', 'default_foo:p0', 6, limit=0))
+        self.len(0, core.getTufosBy('ge', 'default_foo:p0', 6, limit=0))
+        self.len(0, core.getTufosBy('ge', 'default_foo:p0', 5, limit=0))
 
         # By LT/LE/GE/GT requiring type normalization
         foog = core.formTufoByProp('inet:ipv4', '10.2.3.5')
@@ -791,6 +816,7 @@ class CortexBaseTest(SynTest):
         tufs = core.getTufosBy('range', 'intform', (5, 15))
         self.eq(len(tufs), 1)
         self.eq(tufs[0][0], t0[0])
+        self.len(0, core.getTufosBy('range', 'intform', (5, 15), limit=0))
         # Do a range lift requiring prop normalization (using a built-in data type) to work
         t2 = core.formTufoByProp('inet:ipv4', '1.2.3.3')
         tufs = core.getTufosBy('range', 'inet:ipv4', (0x01020301, 0x01020309))
@@ -813,6 +839,9 @@ class CortexBaseTest(SynTest):
         self.eq(len(core.getTufosBy('has', 'inet:ipv4', valu=None)), 5)
         self.eq(len(core.getTufosBy('has', 'syn:tag', valu=None)), 0)
 
+        self.len(1, core.getTufosBy('has', 'default_foo', valu='knight', limit=1))
+        self.len(0, core.getTufosBy('has', 'default_foo', valu='knight', limit=0))
+
         # By TAG
         core.addTufoTag(fooa, 'color.white')
         core.addTufoTag(fooa, 'color.black')
@@ -829,6 +858,8 @@ class CortexBaseTest(SynTest):
         self.eq(len(core.getTufosBy('tag', 'inet:ipv4', 'color.green')), 2)
         self.eq(len(core.getTufosBy('tag', 'inet:ipv4', 'color.white')), 1)
         self.eq(len(core.getTufosBy('tag', None, 'color.white')), 2)
+        self.len(1, core.getTufosBy('tag', None, 'color.white', limit=1))
+        self.len(0, core.getTufosBy('tag', None, 'color.white', limit=0))
 
         # By EQ
         self.eq(len(core.getTufosBy('eq', 'default_foo', 'bar')), 1)
@@ -841,6 +872,8 @@ class CortexBaseTest(SynTest):
         self.eq(len(core.getTufosBy('eq', 'inet:ipv4', '0.0.0.0')), 0)
         self.eq(len(core.getTufosBy('eq', 'inet:web:memb', '(vertex.link/pennywise,vertex.link/eldergods)')), 1)
         self.eq(len(core.getTufosBy('eq', 'inet:web:memb', ('vertex.link/invisig0th', 'vertex.link/eldergods'))), 1)
+        self.len(1, core.getTufosBy('eq', 'inet:ipv4:asn', -1, limit=1))
+        self.len(0, core.getTufosBy('eq', 'inet:ipv4:asn', -1, limit=0))
 
         # By TYPE - this requires data model introspection
         fook = core.formTufoByProp('inet:dns:a', 'derry.vertex.link/10.2.3.6')
@@ -848,6 +881,8 @@ class CortexBaseTest(SynTest):
         # self.eq(len(core.getTufosBy('type', 'inet:ipv4', None)), 7)
         self.eq(len(core.getTufosBy('type', 'inet:ipv4', '10.2.3.6')), 3)
         self.eq(len(core.getTufosBy('type', 'inet:ipv4', 0x0a020306)), 3)
+        self.len(1, core.getTufosBy('type', 'inet:ipv4', '10.2.3.6', limit=1))
+        self.len(0, core.getTufosBy('type', 'inet:ipv4', '10.2.3.6', limit=0))
 
         # By TYPE using COMP nodes
         self.eq(len(core.getTufosBy('type', 'inet:web:memb', '(vertex.link/pennywise,vertex.link/eldergods)')), 1)
@@ -920,6 +955,9 @@ class CortexBaseTest(SynTest):
         self.eq(test_repr, '10.2.1.8')
         test_repr = core.getTypeRepr('inet:ipv4', nodes[-1][1].get('inet:ipv4'))
         self.eq(test_repr, '10.2.1.15')
+        # Ensure limits are respected
+        self.len(1, core.getTufosBy('inet:cidr', 'inet:ipv4', '10.2.1.8/29', limit=1))
+        self.len(0, core.getTufosBy('inet:cidr', 'inet:ipv4', '10.2.1.8/29', limit=0))
 
         # 10.2.1.1/28 is 10.2.1.0 -> 10.2.1.15 but we don't have 10.2.1.0 in the core
         nodes = core.getTufosBy('inet:cidr', 'inet:ipv4', '10.2.1.1/28')
@@ -951,6 +989,8 @@ class CortexTest(SynTest):
     def test_cortex_datamodel_runt_consistency(self):
         with self.getRamCore() as core:
 
+            uniprops = core.getUnivProps()
+
             nodes = core.getTufosByProp('syn:form')
             for node in nodes:
                 self.isin('syn:form:ptype', node[1])
@@ -961,7 +1001,10 @@ class CortexTest(SynTest):
 
             nodes = core.getTufosByProp('syn:prop')
             for node in nodes:
-                self.isin('syn:prop:form', node[1])
+                prop = node[1].get('syn:prop')
+                if prop not in uniprops:
+                    self.isin('syn:prop:form', node[1])
+
                 if 'syn:prop:glob' in node[1]:
                     continue
                 self.isin('syn:prop:req', node[1])
@@ -993,6 +1036,12 @@ class CortexTest(SynTest):
             self.isin('syn:prop:doc', node[1])
             self.isin('syn:prop:base', node[1])
             self.isin('syn:prop:relname', node[1])
+
+            # universal prop nodes
+            node = core.getTufoByProp('syn:prop', 'node:ndef')
+            self.eq(node[1].get('syn:prop:univ'), 1)
+            # The node:ndef value is a stable guid :)
+            self.eq(node[1].get('node:ndef'), 'd20cb4873e36db4670073169f87abc32')
 
             # Ensure things bubbled up during node / datamodel creation
             self.eq(core.getPropInfo('strform', 'doc'), 'A test str form')
@@ -1061,16 +1110,27 @@ class CortexTest(SynTest):
             # ro props after the fact. Also ensure those secondary props which
             # may trigger autoadds are generating the autoadds and do not retain
             # those non-model seconadry props.
-            valu, subs = core.getTypeNorm('inet:web:post', '(vertex.ninja/ninja,"Just ninja things.")')
-            t0 = core.formTufoByProp('inet:web:post', valu)
-            self.eq(t0[1].get('inet:web:post'), valu)
-            self.none(t0[1].get('inet:web:post:acct'))
-            self.none(t0[1].get('inet:web:post:text'))
-            t0 = core.setTufoProps(t0, **subs)
-            self.eq(t0[1].get('inet:web:post:acct'), 'vertex.ninja/ninja')
-            self.eq(t0[1].get('inet:web:post:text'), 'Just ninja things.')
-            t0 = core.setTufoProps(t0, text='Throwing stars are cool!')
-            self.eq(t0[1].get('inet:web:post:text'), 'Just ninja things.')
+            core.addDataModels([
+                ('test:foo', {
+                    'forms': (
+                        ('test:roprop', {'ptype': 'guid'}, (
+                            ('hehe', {'ptype': 'int', 'ro': 1}),
+                        )),
+                    ),
+                })
+            ])
+
+            # Ensure that splices for changes on ro properties on a node are reflected
+            node = core.formTufoByProp('test:roprop', '*')
+
+            self.nn(node[1].get('test:roprop'))
+            self.none(node[1].get('test:roprop:hehe'))
+
+            node = core.setTufoProps(node, hehe=10)
+            self.eq(node[1].get('test:roprop:hehe'), 10)
+
+            node = core.setTufoProps(node, hehe=20)
+            self.eq(node[1].get('test:roprop:hehe'), 10)
 
     def test_cortex_tufo_pop(self):
         with self.getRamCore() as core:
@@ -1268,6 +1328,13 @@ class CortexTest(SynTest):
 
         self.raises(NoSuchStat, core.getStatByProp, 'derp', 'inet:ipv4')
 
+        # Stats props both accept a valu and are normed
+        self.nn(core.formTufoByProp('inet:ipv4', 0x01020304))
+        self.nn(core.formTufoByProp('inet:ipv4', 0x05060708))
+        self.eq(core.getStatByProp('count', 'inet:ipv4'), 2)
+        self.eq(core.getStatByProp('count', 'inet:ipv4', 0x01020304), 1)
+        self.eq(core.getStatByProp('count', 'inet:ipv4', '1.2.3.4'), 1)
+
     def test_cortex_fire_set(self):
 
         with self.getRamCore() as core:
@@ -1325,11 +1392,18 @@ class CortexTest(SynTest):
         self.eq(rofl[1].get('syn:tag:base'), 'rofl')
 
         tags = core.getTufosByProp('syn:tag:base', 'rofl')
-
-        self.eq(len(tags), 2)
+        self.len(2, tags)
+        tags = core.getTufosByProp('syn:tag:base', 'rofl', limit=1)
+        self.len(1, tags)
+        tags = core.getTufosByProp('syn:tag:base', 'rofl', limit=0)
+        self.len(0, tags)
 
         wait = core.waiter(2, 'node:tag:del')
-        core.delTufoTag(hehe, 'lulz.rofl')
+        hehe = core.delTufoTag(hehe, 'lulz.rofl')
+        self.nn(hehe)
+        self.isin('#lulz', hehe[1])
+        self.notin('#lulz.rofl', hehe[1])
+        self.notin('#lulz.rofl.zebr', hehe[1])
         wait.wait(timeout=2)
 
         wait = core.waiter(1, 'node:tag:del')
@@ -1355,6 +1429,13 @@ class CortexTest(SynTest):
         self.nn(core.getTufoByProp('syn:tag', 'lulz.rofl'))
         self.nn(core.getTufoByProp('syn:tag', 'lulz.rofl.zebr'))
 
+        # Ensure we're making nodes which have a timebox
+        node = core.addTufoTag(node, 'foo.bar@20171217')
+        self.eq(s_tufo.ival(node, '#foo.bar'), (1513468800000, 1513468800000))
+        # Ensure the times argument is respected
+        node = core.addTufoTag(node, 'foo.duck', times=(1513382400000, 1513468800000))
+        self.eq(s_tufo.ival(node, '#foo.duck'), (1513382400000, 1513468800000))
+
         # Recreate expected results from #320 to ensure
         # we're also doing the same via storm
         self.eq(len(core.eval('[inet:fqdn=w00t.com +#some.tag]')), 1)
@@ -1362,6 +1443,11 @@ class CortexTest(SynTest):
         self.eq(len(core.eval('inet:fqdn=w00t.com +node:created<1')), 0)
         self.eq(len(core.eval('inet:fqdn=w00t.com +node:created>1')), 1)
         self.eq(len(core.eval('inet:fqdn=w00t.com totags(leaf=0)')), 2)
+        self.eq(len(core.eval('inet:fqdn=w00t.com totags(leaf=0, limit=3)')), 2)
+        self.eq(len(core.eval('inet:fqdn=w00t.com totags(leaf=0, limit=2)')), 2)
+        self.eq(len(core.eval('inet:fqdn=w00t.com totags(leaf=0, limit=1)')), 1)
+        self.eq(len(core.eval('inet:fqdn=w00t.com totags(leaf=0, limit=0)')), 2)
+        self.raises(BadOperArg, core.eval, 'inet:fqdn=w00t.com totags(leaf=0, limit=-1)')
         self.eq(len(core.eval('syn:tag=some')), 1)
         self.eq(len(core.eval('syn:tag=some.tag')), 1)
         self.eq(len(core.eval('syn:tag=some delnode(force=1)')), 0)
@@ -1451,22 +1537,6 @@ class CortexTest(SynTest):
             self.nn(core1.getTufoByProp('inet:fqdn', 'vertex.link'))
             self.nn(core1.getTufoByProp('inet:fqdn', 'link'))
 
-            # Ensure that splices for changes on ro properties on a node are reflected
-            valu, subs = core0.getTypeNorm('inet:web:post',
-                                           '(vertex.ninja/ninja,"Just ninja things.")')
-            t0 = core0.formTufoByProp('inet:web:post', valu)
-            self.eq(t0[1].get('inet:web:post'), valu)
-            self.none(t0[1].get('inet:web:post:acct'))
-            self.none(t0[1].get('inet:web:post:text'))
-            core0.setTufoProps(t0, **subs)
-            t0 = core1.getTufoByProp('inet:web:post', valu)
-            self.eq(t0[1].get('inet:web:post:acct'), 'vertex.ninja/ninja')
-            self.eq(t0[1].get('inet:web:post:text'), 'Just ninja things.')
-            self.nn(core1.getTufoByProp('inet:web:acct', 'vertex.ninja/ninja'))
-            self.nn(core1.getTufoByProp('inet:user', 'ninja'))
-            self.nn(core1.getTufoByProp('inet:fqdn', 'vertex.ninja'))
-            self.nn(core1.getTufoByProp('inet:fqdn', 'ninja'))
-
     def test_cortex_dict(self):
         core = s_cortex.openurl('ram://')
         core.addTufoForm('foo:bar', ptype='int')
@@ -1524,6 +1594,12 @@ class CortexTest(SynTest):
             self.true(core.isSetPropOk('foo:baz:haha'))
             self.true(core.isSetPropOk('foo:baz:duck'))
 
+            # we can make nodes from props (not forms!)
+            node0 = core.formTufoByProp('foo:baz:fqdn', 'woot.com')
+            self.nn(node0)
+            self.eq(node0[1].get('tufo:form'), 'foo:baz:fqdn')
+            self.eq(node0[1].get('foo:baz:fqdn'), 'woot.com')
+
             # Now re-enable enforce
             core.setConfOpt('enforce', 1)
 
@@ -1565,6 +1641,8 @@ class CortexTest(SynTest):
             # Ensure that we cannot form nodes from Types alone - we must use forms
             self.raises(NoSuchForm, core.formTufoByProp, 'str', 'we all float down here')
             self.raises(NoSuchForm, core.formTufoByProp, 'inet:srv4', '1.2.3.4:8080')
+            # Ensure that we cannot form nodes from non-form prop's which do not have ctors
+            self.raises(NoSuchForm, core.formTufoByProp, 'foo:baz:fqdn', 'woot.com')
 
     def test_cortex_minmax(self):
 
@@ -2049,7 +2127,7 @@ class CortexTest(SynTest):
                 self.nn(tufo1)
 
                 # node:created rows are not sent with the splice and will be created by the target core
-                self.gt(tufo1[1]['node:created'], tufo0[1]['node:created'])
+                self.ge(tufo1[1]['node:created'], tufo0[1]['node:created'])
 
     def test_cortex_xact_deadlock(self):
         N = 100
@@ -2200,6 +2278,12 @@ class CortexTest(SynTest):
 
             core.setConfOpt('rev:model', 1)
             core.setConfOpt('modules', mods)
+
+            # Get a list of modules which are loaded in the Cortex
+            modules = core.getCoreMods()
+            self.gt(len(modules), 2)
+            self.isin('synapse.models.syn.SynMod', modules)
+            self.isin('synapse.tests.test_cortex.CoreTestModule', modules)
 
             # directly access the module so we can confirm it gets fini()
             modu = core.coremods.get('synapse.tests.test_cortex.CoreTestModule')
@@ -2694,6 +2778,7 @@ class CortexTest(SynTest):
             self.eq(len(core.getRoleRules('newb')), 0)
 
             # test the short circuit before auth is enabled
+            core.reqperm(('node:add', {'form': 'inet:fqdn'}), user='newp')
             self.true(core.allowed(('node:add', {'form': 'inet:fqdn'}), user='newp'))
 
             core.setConfOpt('auth:en', 1)
@@ -2708,12 +2793,17 @@ class CortexTest(SynTest):
                 rule = (True, ('node:add', {'form': 'ou:org'}))
                 core.addUserRule('fred@woot.com', rule)
 
-                self.true(core.allowed(('node:add', {'form': 'ou:org'})))
+                perm = ('node:add', {'form': 'ou:org'})
+                core.reqperm(perm)
+                self.true(core.allowed(perm))
                 self.eq(len(core.getUserRules('fred@woot.com')), 1)
 
                 core.setUserRules('fred@woot.com', ())
                 self.eq(len(core.getUserRules('fred@woot.com')), 0)
-                self.false(core.allowed(('node:add', {'form': 'ou:org'})))
+
+                perm = ('node:add', {'form': 'ou:org'})
+                self.false(core.allowed(perm))
+                self.raises(AuthDeny, core.reqperm, perm)
 
             with s_auth.runas('root@localhost'):
                 self.true(core.allowed(('fake', {})))
@@ -2756,6 +2846,229 @@ class CortexTest(SynTest):
             self.none(t1[1].get('strform:bar'))
             self.none(t1[1].get('strform:baz'))
             self.none(t1[1].get('strform:haha'))
+
+    def test_cortex_fifos(self):
+
+        with self.getTestDir() as dirn:
+
+            url = 'dir:///' + dirn
+            with s_cortex.openurl(url) as core:
+
+                self.raises(NoSuchFifo, core.getCoreFifo, 'haha')
+
+                node = core.formTufoByProp('syn:fifo', '*', name='haha')
+                path = core.getCorePath('fifos', node[1].get('syn:fifo'))
+
+                sent = []
+
+                # this will trigger dir creation
+                core.subCoreFifo('haha', sent.append)
+
+                self.true(os.path.isdir(path))
+
+                core.putCoreFifo('haha', 'foo')
+                core.putCoreFifo('haha', 'bar')
+
+                self.len(2, sent)
+                self.eq(sent[0][2], 'foo')
+                self.eq(sent[1][2], 'bar')
+
+                core.ackCoreFifo('haha', sent[0][0])
+
+                sent = []
+                core.subCoreFifo('haha', sent.append)
+
+                self.len(1, sent)
+                self.eq(sent[0][2], 'bar')
+
+                with s_daemon.Daemon() as dmon:
+
+                    link = dmon.listen('tcp://127.0.0.1:0/')
+                    dmon.share('core', core)
+
+                    port = link[1].get('port')
+                    prox = s_telepath.openurl('tcp://127.0.0.1/core', port=port)
+
+                    data = []
+                    def fifoxmit(mesg):
+                        data.append(mesg)
+                        name = mesg[1].get('name')
+                        seqn = mesg[1].get('qent')[0]
+                        prox.fire('fifo:ack', seqn=seqn, name=name)
+
+                    prox.on('fifo:xmit', fifoxmit, name='haha')
+
+                    wait = prox.waiter(1, 'fifo:xmit')
+                    prox.subCoreFifo('haha')
+
+                    self.nn(wait.wait(timeout=1))
+
+                    self.len(1, data)
+
+                    wait = prox.waiter(2, 'fifo:xmit')
+                    ackwait = core.waiter(2, 'fifo:ack')
+
+                    core.extCoreFifo('haha', ('lulz', 'rofl'))
+
+                    self.nn(wait.wait(timeout=1))
+                    self.nn(ackwait.wait(timeout=1))
+
+                    self.len(3, data)
+
+                    waiter = prox.waiter(1, 'tele:sock:init')
+                    subwait = core.waiter(1, 'fifo:sub')
+
+                    prox._tele_sock.fini()
+
+                    self.nn(waiter.wait(timeout=1))
+                    self.nn(subwait.wait(timeout=1))
+
+                    waiter = prox.waiter(1, 'fifo:xmit')
+                    core.putCoreFifo('haha', 'zonk')
+                    self.nn(waiter.wait(timeout=1))
+
+                    self.len(4, data)
+
+                core.delTufo(node)
+
+                self.false(os.path.isdir(path))
+                self.raises(NoSuchFifo, core.getCoreFifo, 'haha')
+
+    def test_cortex_universal_props(self):
+        with self.getRamCore() as core:
+            myfo = core.myfo
+
+            node = core.getTufoByProp('node:ndef', '90ec8b92deda626d31e2d63e8dbf48be')
+            self.eq(node[0], myfo[0])
+
+            node = core.getTufoByProp('tufo:form', 'syn:core')
+            self.eq(node[0], myfo[0])
+
+            nodes = core.getTufosByProp('node:created', myfo[1].get('node:created'))
+            self.ge(len(nodes), 1)
+            rvalu = core.getPropRepr('node:created', myfo[1].get('node:created'))
+            self.isinstance(rvalu, str)
+            nodes2 = core.getTufosByProp('node:created', rvalu)
+            self.eq(len(nodes), len(nodes2))
+
+            # We can have a data model which has a prop which is a ndef type
+            modl = {
+                'types': (
+                    ('ndefxref', {'subof': 'comp', 'fields': 'ndef,node:ndef|strdude,strform|time,time'}),
+                ),
+                'forms': (
+                    ('ndefxref', {}, (
+                        ('ndef', {'req': 1, 'ro': 1, 'doc': 'ndef to a node', 'ptype': 'ndef'}),
+                        ('strdude', {'req': 1, 'ro': 1, 'doc': 'strform thing', 'ptype': 'strform'}),
+                        ('time', {'req': 1, 'ro': 1, 'doc': 'time thing was seen', 'ptype': 'time'})
+                    )),
+                )
+            }
+            core.addDataModel('unitst', modl)
+
+            # Make an node which refers to another node by its node:ndef value
+            node = core.formTufoByProp('ndefxref', '(90ec8b92deda626d31e2d63e8dbf48be,"hehe","2017")')
+            self.nn(node)
+            self.isin('.new', node[1])
+
+            # We can also provide values which will be prop-normed by the NDefType
+            # This means we can create arbitrary linkages which may eventually exist
+            nnode = core.formTufoByProp('ndefxref', '((syn:core,self),"hehe","2017")')
+            self.notin('.new', nnode[1])
+            self.eq(node[0], nnode[0])
+            self.nn(core.getTufoByProp('strform', 'hehe'))
+
+            # Use storm to pivot across this node to the ndef node
+            nodes = core.eval('ndefxref :ndef->node:ndef')
+            self.len(1, nodes)
+            self.eq(nodes[0][0], myfo[0])
+
+            # Use storm to pivot from the ndef node to the ndefxref node
+            nodes = core.eval('syn:core=self node:ndef->ndefxref:ndef')
+            self.len(1, nodes)
+            self.eq(nodes[0][0], node[0])
+
+            # Lift nodes by node:created text timestamp
+            nodes = core.eval('node:created>={}'.format(rvalu))
+            self.ge(len(nodes), 3)
+
+            # We can add a new universal prop via API
+            nprop = core.addPropDef('node:tstfact',
+                                    ro=1,
+                                    univ=1,
+                                    ptype='str:lwr',
+                                    doc='A fact about a node.',
+                                    )
+            self.isinstance(nprop, tuple)
+            self.isin('node:tstfact', core.getUnivProps())
+            self.notin('node:tstfact', core.unipropsreq)
+            self.nn(core.getPropDef('node:tstfact'))
+
+            node = core.formTufoByProp('inet:ipv4', 0x01020304)
+            self.nn(node)
+            self.notin('node:tstfact', node[1])
+            # Set the non-required prop via setTufoProps()
+            node = core.setTufoProps(node, **{'node:tstfact': ' THIS node is blue.  '})
+            self.eq(node[1].get('node:tstfact'), 'this node is blue.')
+
+            # The uniprop is ro and cannot be changed once set
+            node = core.setTufoProps(node, **{'node:tstfact': 'hehe'})
+            self.eq(node[1].get('node:tstfact'), 'this node is blue.')
+
+            # We can have a mutable, non ro universal prop on a node though!
+            nprop = core.addPropDef('node:tstopinion',
+                                    univ=1,
+                                    ptype='str:lwr',
+                                    doc='A opinion about a node.',
+                                    )
+            node = core.setTufoProps(node, **{'node:tstopinion': ' THIS node is good Ash.  '})
+            self.eq(node[1].get('node:tstopinion'), 'this node is good ash.')
+
+            # We can change the prop of the uniprop on this node.
+            node = core.setTufoProps(node, **{'node:tstopinion': 'this node is BAD ash.'})
+            self.eq(node[1].get('node:tstopinion'), 'this node is bad ash.')
+
+            # Lastly - we can add a universal prop which is required but breaks node creation
+            # Do NOT do this in the real world - its a bad idea.
+            nprop = core.addPropDef('node:tstevil',
+                                    univ=1,
+                                    req=1,
+                                    ptype='bool',
+                                    doc='No more nodes!',
+                                    )
+            self.nn(nprop)
+            self.raises(PropNotFound, core.formTufoByProp, 'inet:ipv4', 0x01020305)
+            # We can add a node:add handler to populate this new universal prop though!
+            def foo(mesg):
+                fulls = mesg[1].get('props')
+                fulls['node:tstevil'] = 1
+            core.on('node:form', foo)
+            # We can form nodes again, but they're all evil.
+            node = core.formTufoByProp('inet:ipv4', 0x01020305)
+            self.nn(node)
+            self.eq(node[1].get('node:tstevil'), 1)
+            core.off('node:form', foo)
+
+            # We cannot add a universal prop which is associated with a form
+            self.raises(BadPropConf, core.addPropDef, 'node:poorform', univ=1, req=1, ptype='bool', form='file:bytes')
+
+    def test_cortex_gettasks(self):
+        with self.getRamCore() as core:
+
+            def f1(mesg):
+                pass
+
+            def f2(mesg):
+                pass
+
+            core.on('task:hehe:haha', f1)
+            core.on('task:hehe:haha', f2)
+            core.on('task:wow', f1)
+
+            tasks = core.getCoreTasks()
+            self.len(2, tasks)
+            self.isin('hehe:haha', tasks)
+            self.isin('wow', tasks)
 
 class StorageTest(SynTest):
 

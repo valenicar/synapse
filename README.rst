@@ -2,18 +2,21 @@ synapse
 =======
 Distributed Key-Value Hypergraph Analysis Framework
 
-Builds
-------
+|codecov|_ |drone|_ |appveyor|_ |dockerhub|_ |rtd|_
 
-- Drone |drone|_
-- AppVeyor |appveyor|_
-- Codecov |codecov|_
-- Documentation |rtd_latest|
+Installation
+------------
+Synapse is available as a Python Package on pypi_ and as a Docker image on dockerhub_.
 
 Documentation
 -------------
 
-https://vertexprojectsynapse.readthedocs.io
+API Documentation and User Guides can be found at https://vertexprojectsynapse.readthedocs.io
+
+Chat
+----
+
+Join the Vertex Project on |slack|_!
 
 .. |drone| image:: https://drone.vertex.link/api/badges/vertexproject/synapse/status.svg?branch=master
 .. _drone: https://drone.vertex.link/vertexproject/synapse
@@ -24,4 +27,13 @@ https://vertexprojectsynapse.readthedocs.io
 .. |codecov| image:: https://codecov.io/gh/vertexproject/synapse/branch/master/graph/badge.svg?branch=master
 .. _codecov: https://codecov.io/gh/vertexproject/synapse
 
-.. |rtd_latest| image:: https://readthedocs.org/projects/vertexprojectsynapse/badge/?version=latest
+.. |rtd| image:: https://readthedocs.org/projects/vertexprojectsynapse/badge/?version=latest
+.. _rtd: https://vertexprojectsynapse.readthedocs.io
+
+.. |dockerhub| image:: https://img.shields.io/docker/build/vertexproject/synapse.svg?branch=master
+.. _dockerhub: https://hub.docker.com/r/vertexproject/synapse/
+
+.. |slack| image:: https://www.vertex.link/slack/badge.svg
+.. _slack: https://www.vertex.link/slack/
+
+.. _pypi: https://pypi.python.org/pypi/synapse

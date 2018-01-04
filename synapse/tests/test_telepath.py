@@ -33,6 +33,9 @@ class Foo(s_eventbus.EventBus):
     def localthing(self, x):
         return self.echo(x)
 
+    def echo(self, x):
+        return x
+
 class TelePathTest(SynTest):
 
     def getFooServ(self):
@@ -61,6 +64,12 @@ class TelePathTest(SynTest):
         self.true(s_telepath.isProxy(foo))
         self.false(s_telepath.isProxy(self))
 
+        # Test magic methods
+        self.true(bool(foo) is True)
+        self.true(foo == foo)
+        self.false(foo == 1)
+        self.true(foo != 1)
+
         s = time.time()
         for i in range(1000):
             foo.speed()
@@ -72,6 +81,11 @@ class TelePathTest(SynTest):
         self.raises(SynErr, foo.baz, 10, 20)
 
         foo.fini()
+        # We have fini'd the Proxy resources
+        self.true(foo._tele_boss.isfini)
+        self.true(foo._tele_sock.isfini)
+        self.true(foo._tele_plex.isfini)
+
         env.fini()
 
     def test_telepath_chop(self):
@@ -94,6 +108,7 @@ class TelePathTest(SynTest):
         newp = s_telepath.openurl('tcp://localhost:%d/newp' % (port,))
         self.raises(SynErr, newp.foo)
 
+        newp.fini()
         dmon.fini()
 
     def test_telepath_call(self):
@@ -105,6 +120,22 @@ class TelePathTest(SynTest):
         self.nn(job)
 
         self.eq(foo.syncjob(job), 30)
+
+        foo.fini()
+        dmon.fini()
+
+    def test_telepath_surrogate(self):
+
+        dmon, link = self.getFooServ()
+
+        foo = s_telepath.openlink(link)
+
+        bads = '\u01cb\ufffd\ud842\ufffd\u0012'
+        t0 = ('1234', {'key': bads})
+
+        # Shovel a malformed UTF8 string with an unpaired surrogate over telepath
+        ret = foo.echo(t0)
+        self.eq(ret, t0)
 
         foo.fini()
         dmon.fini()
@@ -157,6 +188,7 @@ class TelePathTest(SynTest):
         job = foo.callx('baz', ('faz', (30,), {'y': 40}), )
 
         self.eq(foo.syncjob(job), '30:40')
+        foo.fini()
 
     def test_telepath_fakesync(self):
         env = self.getFooEnv()
@@ -207,6 +239,9 @@ class TelePathTest(SynTest):
 
         self.eq(prox1.bar(33, 44), 77)
 
+        prox0.fini()
+        prox1.fini()
+
         env0.fini()
         env1.fini()
 
@@ -233,8 +268,23 @@ class TelePathTest(SynTest):
         url = 'tcp://127.0.0.1:%d/foo' % (port,)
         self.eq(prox.bar(10, 20), 30)
 
-        waiter = self.getTestWait(prox, 1, 'tele:sock:init')
+        data = {}
+        def _onHehe(mesg):
+            data['hehe'] = data.get('hehe', 0) + 1
+            data['haha'] = mesg[1].get('haha')
 
+        data2 = {}
+        def _onReconnect(mesg):
+            data2['reconnect'] = True
+
+        prox.on('tele:sock:runsockfini', _onReconnect)
+        prox.on('hehe', _onHehe)
+
+        prox.fire('hehe', haha=1)
+        self.eq(data.get('hehe'), 1)
+        self.eq(data.get('haha'), 1)
+
+        waiter = self.getTestWait(prox, 1, 'tele:sock:init')
         # shut down the daemon
         tenv.dmon.fini()
 
@@ -245,6 +295,12 @@ class TelePathTest(SynTest):
         waiter.wait()
 
         self.eq(prox.bar(10, 20), 30)
+
+        prox.fire('hehe', haha=3)
+        self.eq(data.get('hehe'), 2)
+        self.eq(data.get('haha'), 3)
+
+        self.true(data2['reconnect'])
 
         prox.fini()
         dmon.fini()
@@ -366,6 +422,9 @@ class TelePathTest(SynTest):
                 self.eq(counters['p1'], 3)
                 self.eq(counters['f0'], 1)
 
+                proxy0.fini()
+                proxy1.fini()
+
     def test_telepath_clientside(self):
 
         with s_daemon.Daemon() as dmon:
@@ -392,3 +451,42 @@ class TelePathTest(SynTest):
 
             with s_telepath.openurl('tcp://127.0.0.1/foo', port=port) as foo:
                 self.raises(MustBeLocal, s_telepath.reqNotProxy, foo)
+
+    def test_telepath_reminder(self):
+
+        evnt = threading.Event()
+        class Mind(s_eventbus.EventBus):
+
+            def __init__(self):
+                s_eventbus.EventBus.__init__(self)
+                self.sent = []
+                self.on('foo:bar', self._onFooBar)
+
+            def _onFooBar(self, mesg):
+                self.sent.append(mesg)
+                evnt.set()
+
+            def woot(self):
+                s_telepath.reminder('foo:bar', name='hehe')
+                return 10
+
+        mind = Mind()
+
+        with s_daemon.Daemon() as dmon:
+
+            dmon.share('mind', mind)
+
+            link = dmon.listen('tcp://127.0.0.1:0/')
+
+            port = link[1].get('port')
+
+            prox = s_telepath.openurl('tcp://127.0.0.1/mind', port=port)
+
+            self.eq(prox.woot(), 10)
+
+            # reach in and squish the socket...
+            prox._tele_sock.fini()
+            self.true(evnt.wait(timeout=1))
+            self.eq(mind.sent[0][0], 'foo:bar')
+
+            prox.fini()

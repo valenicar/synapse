@@ -14,6 +14,7 @@ import synapse.common as s_common
 import synapse.eventbus as s_eventbus
 
 import synapse.lib.queue as s_queue
+import synapse.lib.msgpack as s_msgpack
 
 logger = logging.getLogger(__name__)
 
@@ -213,20 +214,48 @@ class Dir(s_eventbus.EventBus):
 
     def items(self, off):
         '''
-        Yield (nextoff,item) tuples from the file backlog and real-time
+        Yield (nextoff,object) tuples from the file backlog and real-time
         once caught up.
 
-        NOTE: because this is a legitimate yield generator it may not be
-              used across a telepath proxy.
+        Args:
+            off (int): Starting offset to use when unpacking objects from the
+                       Dir object.
 
-        Example:
+        Examples:
+            Iterate over the items in a file and do stuff with them::
 
-            for noff,item in pers.items(0):
-                stuff(item)
+                for noff, item in pers.items(0):
+                    dostuff(item)
 
+            Iterate over the items in a file and save offset location::
+
+                poff = pers.getIdenOffset(iden)
+                for noff, item in pers.items(poff.get()):
+                    dostuff(item)
+                    poff.set(noff)
+
+        Notes:
+            This is a legitimate yield generator; it may not be used across
+            a Telepath Proxy.
+
+            The offset yielded by this is an absolute offset to the **next**
+            item in the stream; not the item which was just yielded. As such,
+            that offset value may be used to restart any sort of
+            synchronization activities done with the Dir object.  The Offset
+            object is provided to assist with this.
+
+        Yields:
+            ((int, object)): A tuple containing the absolute offset of the
+            next object and the unpacked object itself.
         '''
         que = s_queue.Queue()
-        unpk = msgpack.Unpacker(use_list=0, encoding='utf8')
+        unpk = msgpack.Unpacker(use_list=0, encoding='utf8',
+                                unicode_errors='surrogatepass')
+
+        # poff is used for iterating over persistence files when unpacking,
+        # while the user supplied offset is used to return absolute offsets
+        # when unpacking objects from the stream.
+        poff = off
 
         if self.files[0].opts.get('baseoff') > off:
             raise Exception('Too Far Back') # FIXME
@@ -236,9 +265,13 @@ class Dir(s_eventbus.EventBus):
         def calcsize(b):
             data['next'] += len(b)
 
+        logger.debug('Entering items with offset %s', off)
+
         for pers in self.files:
 
             base = pers.opts.get('baseoff')
+
+            logger.debug('Base offset for %s - %s', pers, base)
 
             # do we skip this file?
             filemax = base + pers.size
@@ -247,7 +280,9 @@ class Dir(s_eventbus.EventBus):
 
             while True:
 
-                foff = off - base
+                foff = poff - base
+
+                logger.debug('Reading from offset %s', foff)
 
                 byts = pers.readoff(foff, blocksize)
 
@@ -280,13 +315,19 @@ class Dir(s_eventbus.EventBus):
 
                     while True:
                         item = unpk.unpack(write_bytes=calcsize)
-                        yield data['next'], item
+                        # explicit is better than implicit
+                        reloff = data['next']
+                        aboff = reloff + off
+                        yield aboff, item
 
                 except msgpack.exceptions.OutOfData:
                     pass
 
-                off += len(byts)
+                poff += len(byts)
 
+            logger.debug('Done with cached events for %s', pers)
+
+        logger.debug('Entering real-time event pump')
         # we are now a queued real-time pump
         try:
 
@@ -297,6 +338,8 @@ class Dir(s_eventbus.EventBus):
         finally:
             self.queues.remove(que)
             que.fini()
+
+        logger.debug('Leaving items()')
 
 class File(s_eventbus.EventBus):
     '''
@@ -332,7 +375,7 @@ class File(s_eventbus.EventBus):
         '''
         Add an item to the persistance storage.
         '''
-        byts = s_common.msgenpack(item)
+        byts = s_msgpack.en(item)
         size = len(byts)
 
         with self.fdlock:

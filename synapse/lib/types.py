@@ -1,8 +1,9 @@
-import re
 import json
 import base64
 import logging
 import collections
+
+import regex
 
 import synapse.common as s_common
 import synapse.dyndeps as s_dyndeps
@@ -10,6 +11,7 @@ import synapse.dyndeps as s_dyndeps
 import synapse.lib.time as s_time
 import synapse.lib.syntax as s_syntax
 import synapse.lib.modules as s_modules
+import synapse.lib.msgpack as s_msgpack
 
 import synapse.lookup.iso3166 as s_l_iso3166
 
@@ -115,6 +117,11 @@ class GuidType(DataType):
 
             return retn, {}
 
+        node = self.tlib.getTufoByProp('syn:alias', text)
+        if node is not None:
+            return node[1].get('syn:alias:iden'), {}
+
+        # TODO remove legacy model aliases
         if self._guid_alias is None:
             self._raiseBadValu(text, mesg='guid resolver syntax used with non-aliased guid')
 
@@ -162,6 +169,56 @@ class GuidType(DataType):
         subs.update(vals)
         return valu, subs
 
+class NDefType(DataType):
+
+    def __init__(self, tlib, name, **info):
+        DataType.__init__(self, tlib, name, **info)
+        # TODO figure out what to do about tlib vs core issues
+        self._isTufoForm = getattr(tlib, 'isTufoForm', None)
+        self._getPropNorm = getattr(tlib, 'getPropNorm', None)
+
+    def norm(self, valu, oldval=None):
+
+        if isinstance(valu, (list, tuple)):
+            return self._norm_list(valu, oldval)
+
+        if not isinstance(valu, str) or len(valu) < 1:
+            self._raiseBadValu(valu)
+
+        return self._norm_str(valu, oldval)
+
+    def _norm_str(self, text, oldval=None):
+        text = text.strip()
+        if not text:
+            self._raiseBadValu(text, mesg='No text left after strip().')
+
+        if text[0] == '(':
+            vals, off = s_syntax.parse_list(text)
+            if off != len(text):  # pragma: no cover
+                self._raiseBadValu(text, off=off, vals=vals,
+                                   mesg='List parting for ndef type did not consume all of the input text.')
+            return self._norm_list(vals, oldval)
+
+        if not s_common.isguid(text):
+            self._raiseBadValu(text, mesg='Expected a 32 char guid string')
+
+        return text, {}
+
+    def _norm_list(self, valu, oldval=None):
+
+        if not valu:
+            self._raiseBadValu(valu=valu, mesg='No valus present in list to make a guid with')
+
+        form, fvalu = valu
+        if not self._isTufoForm(form):
+            self._raiseBadValu(valu=valu, form=form,
+                               mesg='Form is not a valid form.')
+        # NDefType specifically does not care about the subs since
+        # they aren't useful for universal node identification
+        fvalu, _ = self._getPropNorm(form, fvalu)
+        retn = s_common.guid((form, fvalu))
+        return retn, {}
+
 class StrType(DataType):
 
     def __init__(self, tlib, name, **info):
@@ -179,13 +236,13 @@ class StrType(DataType):
         if enumstr is not None:
             self.envals = enumstr.split(',')
 
-        regex = info.get('regex')
-        if regex is not None:
-            self.regex = re.compile(regex)
+        regexp = info.get('regex')
+        if regexp is not None:
+            self.regex = regex.compile(regexp)
 
         restrip = info.get('restrip')
         if restrip is not None:
-            self.restrip = re.compile(restrip)
+            self.restrip = regex.compile(restrip)
 
         frobintfmt = info.get('frob_int_fmt')
         if frobintfmt is not None:
@@ -224,12 +281,15 @@ class JsonType(DataType):
     def norm(self, valu, oldval=None):
 
         if not isinstance(valu, str):
-            return json.dumps(valu, separators=(',', ':')), {}
+            try:
+                return json.dumps(valu, sort_keys=True, separators=(',', ':')), {}
+            except Exception as e:
+                self._raiseBadValu(valu, mesg='Unable to normalize object as json.')
 
         try:
-            return json.dumps(json.loads(valu), separators=(',', ':')), {}
+            return json.dumps(json.loads(valu), sort_keys=True, separators=(',', ':')), {}
         except Exception as e:
-            self._raiseBadValu(valu)
+            self._raiseBadValu(valu, mesg='Unable to norm json string')
 
 class IntType(DataType):
 
@@ -268,6 +328,11 @@ class IntType(DataType):
         if not isinstance(valu, int):
             self._raiseBadValu(valu, mesg='Valu is not an int')
 
+        if valu < -9223372036854775808:
+            self._raiseBadValu(valu, mesg='Value less than 64bit signed integer minimum (-9223372036854775808)')
+        if valu > 9223372036854775807:
+            self._raiseBadValu(valu, mesg='Value greater than 64bit signed integer maximum (9223372036854775807)')
+
         if oldval is not None and self.minmax:
             valu = self.minmax(valu, oldval)
 
@@ -282,11 +347,11 @@ class IntType(DataType):
 def enMsgB64(item):
     # FIXME find a way to go directly from binary bytes to
     # base64 *string* to avoid the extra decode pass..
-    return base64.b64encode(s_common.msgenpack(item)).decode('utf8')
+    return base64.b64encode(s_msgpack.en(item)).decode('utf8')
 
 def deMsgB64(text):
     # FIXME see above
-    return s_common.msgunpack(base64.b64decode(text.encode('utf8')))
+    return s_msgpack.un(base64.b64decode(text.encode('utf8')))
 
 jsseps = (',', ':')
 
@@ -462,11 +527,32 @@ class CompType(DataType):
 
         return s_common.guid(retn), subs
 
+    def _norm_dict(self, valu, oldval=None):
+
+        newv = []
+        for name, ftype in self.fields:
+
+            fval = valu.get(name)
+            if fval is None:
+                self._raiseBadValu(valu, mesg='missing field: %s' % (name,))
+
+            newv.append(fval)
+
+        for name, ftype in self.optfields:
+            fval = valu.get(name)
+            if fval is not None:
+                newv.append((name, fval))
+
+        return self._norm_list(newv)
+
     def norm(self, valu, oldval=None):
 
         # if it's already a guid, we have nothing to normalize...
         if isinstance(valu, str):
             return self._norm_str(valu, oldval=oldval)
+
+        if isinstance(valu, dict):
+            return self._norm_dict(valu, oldval=oldval)
 
         if not islist(valu):
             self._raiseBadValu(valu, mesg='Expected guid or list/tuple')
@@ -660,7 +746,7 @@ class BoolType(DataType):
     def repr(self, valu):
         return repr(bool(valu))
 
-tagre = re.compile(r'^([\w]+\.)*[\w]+$')
+tagre = regex.compile(r'^([\w]+\.)*[\w]+$')
 
 class TagType(DataType):
 
@@ -794,6 +880,8 @@ class TypeLib:
                      doc='A multi-field composite type which can be used to link a known form to an unknown form')
         self.addType('time', ctor='synapse.lib.types.TimeType',
                      doc='Timestamp in milliseconds since epoch', ex='20161216084632')
+        self.addType('ndef', ctor='synapse.lib.types.NDefType',
+                     doc='The type used for normalizing node:ndef values.')
 
         self.addType('syn:tag', ctor='synapse.lib.types.TagType', doc='A synapse tag', ex='foo.bar')
         self.addType('syn:perm', ctor='synapse.lib.types.PermType', doc='A synapse permission string')
@@ -815,7 +903,9 @@ class TypeLib:
         self.addType('str:hex', subof='str', frob_int_fmt='%x', regex=r'^[0-9a-f]+$', lower=1)
 
         self.addTypeCast('country:2:cc', self._castCountry2CC)
+        self.addTypeCast('int:2:str10', self._castMakeInt10)
         self.addTypeCast('make:guid', self._castMakeGuid)
+        self.addTypeCast('make:json', self._castMakeJson)
 
         if load:
             self.loadModModels()
@@ -826,6 +916,16 @@ class TypeLib:
 
     def _castMakeGuid(self, valu):
         return s_common.guid(valu)
+
+    def _castMakeJson(self, valu):
+        valu = json.dumps(valu, sort_keys=True, separators=(',', ':'))
+        return valu
+
+    def _castMakeInt10(self, valu):
+        if isinstance(valu, int):
+            valu = str(valu)
+            return valu
+        return valu
 
     def getTypeInst(self, name):
         '''

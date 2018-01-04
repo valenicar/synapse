@@ -93,6 +93,16 @@ class StormSyntaxTest(SynTest):
         insts = s_syntax.parse('foo:bar -> hehe.haha/baz:faz')
         self.eq(insts[0], ('pivot', {'args': ['foo:bar', 'baz:faz'], 'kwlist': [('from', 'hehe.haha')]}))
 
+        insts = s_syntax.parse(' -> baz:faz')
+        self.eq(insts[0], ('pivot', {'args': ('baz:faz',), 'kwlist': []}))
+
+    def test_storm_syntax_join(self):
+        insts = s_syntax.parse('foo:bar <- hehe.haha/baz:faz')
+        self.eq(insts[0], ('join', {'args': ['foo:bar', 'baz:faz'], 'kwlist': [('from', 'hehe.haha')]}))
+
+        insts = s_syntax.parse(' <- baz:faz')
+        self.eq(insts[0], ('join', {'args': ('baz:faz',), 'kwlist': []}))
+
     def test_storm_syntax_whites(self):
         insts = s_syntax.parse('inet:fqdn     =      "1.2.3.4"')
         self.eq(insts[0], s_syntax.oper('lift', 'inet:fqdn', '1.2.3.4', by='eq'))
@@ -125,3 +135,45 @@ class StormSyntaxTest(SynTest):
         self.eq(opts.get('one'), [3, 4])
         self.eq(opts.get('two'), 5)
         self.eq(opts.get('three'), 'whee')
+
+    def test_lib_syntax_int(self):
+        self.eq(s_syntax.parse_int('  30 ', 0), (30, 5))
+        self.eq(s_syntax.parse_int(' -30 ', 0), (-30, 5))
+
+        self.eq(s_syntax.parse_int('  0xfF  ', 0), (15, 5))
+        self.eq(s_syntax.parse_int('  0b01101001  ', 0), (105, 14))
+
+        self.eq(s_syntax.parse_int(' -0xfF  ', 0), (-15, 5))
+        self.eq(s_syntax.parse_int(' -0b01101001  ', 0), (-105, 14))
+
+        self.eq(s_syntax.parse_int('  1.0 ', 0), (1.0, 6))
+        self.eq(s_syntax.parse_int('  1.2 ', 0), (1.2, 6))
+        self.eq(s_syntax.parse_int('  0.2 ', 0), (0.2, 6))
+        self.eq(s_syntax.parse_int('  0.0 ', 0), (0.0, 6))
+        self.eq(s_syntax.parse_int(' -1.2 ', 0), (-1.2, 6))
+        self.eq(s_syntax.parse_int(' -0.2 ', 0), (-0.2, 6))
+        self.eq(s_syntax.parse_int(' -0.0 ', 0), (0.0, 6))
+
+        self.raises(BadSyntaxError, s_syntax.parse_int, '0x', 0)
+        self.raises(BadSyntaxError, s_syntax.parse_int, 'asdf', 0)
+        self.raises(BadSyntaxError, s_syntax.parse_int, '0xzzzz', 0)
+        self.raises(BadSyntaxError, s_syntax.parse_int, '0bbbbb', 0)
+
+    def test_lib_syntax_float(self):
+
+        valu, off = s_syntax.parse_float('  1 ', 0)
+        self.eq((valu, off), (1.0, 4))
+        self.eq(valu, 1.0)
+        self.eq(valu, 1)
+        self.true(valu is not 1)
+
+        self.eq(s_syntax.parse_float('  1.0 ', 0), (1.0, 6))
+        self.eq(s_syntax.parse_float('  1.2 ', 0), (1.2, 6))
+        self.eq(s_syntax.parse_float('  0.2 ', 0), (0.2, 6))
+        self.eq(s_syntax.parse_float('  0.0 ', 0), (0.0, 6))
+        self.eq(s_syntax.parse_float(' -1.2 ', 0), (-1.2, 6))
+        self.eq(s_syntax.parse_float(' -0.2 ', 0), (-0.2, 6))
+        self.eq(s_syntax.parse_float(' -0.0 ', 0), (0.0, 6))
+
+        self.raises(BadSyntaxError, s_syntax.parse_float, 'asdf', 0)
+        self.raises(BadSyntaxError, s_syntax.parse_float, '1.asdf', 0)

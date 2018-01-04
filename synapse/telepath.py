@@ -17,6 +17,7 @@ import synapse.eventbus as s_eventbus
 import synapse.lib.queue as s_queue
 import synapse.lib.scope as s_scope
 import synapse.lib.socket as s_socket
+import synapse.lib.msgpack as s_msgpack
 import synapse.lib.reflect as s_reflect
 
 logger = logging.getLogger(__name__)
@@ -27,14 +28,26 @@ telever = (2, 0)
 
 def openurl(url, **opts):
     '''
-    Construct a telepath proxy from a url.
+    Construct a Telepath Proxy from a URL.
 
-    Example:
+    Args:
+        url (str): A URL to parser into a link tufo.
+        **opts: Additional options which are added to the link tufo.
 
-        foo = openurl('tcp://1.2.3.4:90/foo')
+    Examples:
+        Get a proxy object from a URL, call a function then close the object::
 
-        foo.dostuff(30) # call remote method
+            foo = openurl('tcp://1.2.3.4:90/foo')
+            foo.dostuff(30) # call remote method
+            foo.fini()
 
+        Get a proxy object as a context manager, which will result in the object being automatically closed::
+
+            with openurl('tcp://1.2.3.4:90/foo') as foo:
+                foo.dostuff(30)
+
+    Returns:
+        Proxy: A Proxy object for calling remote tasks.
     '''
     link = s_link.chop(url)
     link[1].update(opts)
@@ -43,13 +56,25 @@ def openurl(url, **opts):
 
 def openlink(link):
     '''
-    Construct a telepath proxy from a link tufo.
+    Construct a Telepath Proxy from a link tufo.
 
-    Example:
+    Args:
+        link ((str, dict)): A link dictionary.
 
-        foo = openlink(link)
-        foo.bar(20)
+    Examples:
+        Get a proxy object, call a function then close the object::
 
+            foo = openlink(link)
+            foo.bar(20)
+            foo.fini()
+
+        Get a proxy object as a context manager, which will result in the object being automatically closed::
+
+            with openlink as foo:
+                foo.dostuff(30)
+
+    Returns:
+        Proxy: A Proxy object for calling remote tasks.
     '''
     # special case for dmon://fooname/ which refers to a
     # named object within whatever dmon is currently in scope
@@ -73,7 +98,6 @@ def openlink(link):
     sock = relay.connect()
 
     synack = teleSynAck(sock, name=name)
-    bases = ()
 
     return Proxy(relay, sock=sock)
 
@@ -81,14 +105,25 @@ def evalurl(url, **opts):
     '''
     Construct either a local object or a telepath proxy.
 
-    WARNING: this API enables ctor:// proto which uses eval!
-             ( trusted inputs only )
+    Args:
+        url (str): URL to evaluate
+        **opts: Additional options.
 
-    Example:
+    Notes:
+        This API enables the ctor:// protocol which uses ``eval()``.
+        It should **only** be used with trusted inputs!
 
-        item0 = evalurl('tcp://1.2.3.4:90/foo')
-        item1 = evalurl('ctor://foo.bar.baz("woot",y=20)')
+    Examples:
+        Get a remote object over a TCP connection:
 
+            item0 = evalurl('tcp://1.2.3.4:90/foo')
+
+        Get a local object via ctor:
+
+            item1 = evalurl('ctor://foo.bar.baz("woot",y=20)')
+
+    Returns:
+        object: A python object
     '''
     if url.find('://') == -1:
         raise s_common.BadUrl(url)
@@ -176,7 +211,10 @@ class Method:
 
         return self.proxy.syncjob(job)
 
-telelocal = set(['tele:sock:init', 'ebus:init'])
+telelocal = set(['tele:sock:init',
+                 'tele:sock:runsockfini',
+                 'ebus:init',
+                 'fifo:xmit'])
 
 class Proxy(s_eventbus.EventBus):
     '''
@@ -204,8 +242,13 @@ class Proxy(s_eventbus.EventBus):
         self._tele_q = s_queue.Queue()
         self._tele_pushed = {}
 
+        # allow the server to give us events to fire back on
+        # reconnect so we can help re-init our server-side state
+        self._tele_reminders = []
+
         if plex is None:
             plex = s_socket.Plex()
+            self.onfini(plex.fini)
 
         self._tele_plex = plex
         self._tele_boss = s_async.Boss()
@@ -216,9 +259,13 @@ class Proxy(s_eventbus.EventBus):
         self._raw_on('tele:yield:item', self._onTeleYieldItem)
         self._raw_on('tele:yield:fini', self._onTeleYieldFini)
 
+        self._raw_on('tele:reminder', self._onTeleReminder)
+
+        self._raw_on('fifo:xmit', self._onFifoXmit)
         self._raw_on('job:done', self._tele_boss.dist)
         self._raw_on('sock:gzip', self._onSockGzip)
         self._raw_on('tele:call', self._onTeleCall)
+        self._raw_on('tele:sock:init', self._onTeleSockInit)
 
         self._tele_cthr = self.consume(self._tele_q)
 
@@ -238,6 +285,18 @@ class Proxy(s_eventbus.EventBus):
             sock = self._tele_relay.connect()
 
         self._initTeleSock(sock=sock)
+
+    def _onTeleReminder(self, mesg):
+        self._tele_reminders.append(mesg[1].get('mesg'))
+
+    def _onFifoXmit(self, mesg):
+
+        # a bit of magic specific to cortex proxy...
+        # ( this will be made cleaner in neuron use case )
+
+        name = mesg[1].get('name')
+        seqn, nseq, item = mesg[1].get('qent')
+        self.call('fire', 'fifo:ack', name, seqn)
 
     def _onTeleYieldInit(self, mesg):
         jid = mesg[1].get('jid')
@@ -309,14 +368,14 @@ class Proxy(s_eventbus.EventBus):
 
         return ret
 
-    def fire(self, name, **info):
-        if name in telelocal:
-            return s_eventbus.EventBus.fire(self, name, **info)
+    def fire(self, evntname, **info):
+        if evntname in telelocal:
+            return s_eventbus.EventBus.fire(self, evntname, **info)
 
-        job = self.call('fire', name, **info)
+        job = self.call('fire', evntname, **info)
         return self.syncjob(job)
 
-    def call(self, name, *args, **kwargs):
+    def call(self, methname, *args, **kwargs):
         '''
         Call a shared method as a job.
 
@@ -331,7 +390,7 @@ class Proxy(s_eventbus.EventBus):
         '''
         ondone = kwargs.pop('ondone', None)
 
-        task = (name, args, kwargs)
+        task = (methname, args, kwargs)
         return self._tx_call(task, ondone=ondone)
 
     def callx(self, name, task, ondone=None):
@@ -416,6 +475,8 @@ class Proxy(s_eventbus.EventBus):
             if not self.isfini:
                 s_glob.pool.call(self._runSockFini)
 
+        logger.debug('[%s] has sock [%s]', self, sock)
+
         sock.onfini(sockfini)
 
         self._teleSynAck(sock)
@@ -423,8 +484,13 @@ class Proxy(s_eventbus.EventBus):
         # add the sock to the multiplexor
         self._tele_plex.addPlexSock(sock)
 
-        # let client code do stuff on reconnect
         self._tele_sock = sock
+
+        # fire the remiders that the server wanted
+        for evntname, evntinfo in self._tele_reminders:
+            self.call('fire', evntname, **evntinfo)
+
+        # let client code do stuff on reconnect
         self.fire('tele:sock:init', sock=sock)
 
     def _onLinkSockMesg(self, event):
@@ -435,6 +501,8 @@ class Proxy(s_eventbus.EventBus):
     def _runSockFini(self):
         if self.isfini:
             return
+
+        self.fire('tele:sock:runsockfini')
 
         try:
             self._initTeleSock()
@@ -447,7 +515,7 @@ class Proxy(s_eventbus.EventBus):
 
     def _onSockGzip(self, mesg):
         data = zlib.decompress(mesg[1].get('data'))
-        self.dist(s_common.msgunpack(data))
+        self.dist(s_msgpack.un(data))
 
     def _runTeleCall(self, mesg):
 
@@ -484,6 +552,25 @@ class Proxy(s_eventbus.EventBus):
     def _syn_reflect(self):
         return self._tele_reflect
 
+    def _onTeleSockInit(self, mesg):
+        '''
+        Callback to allow the client to do anything neccesary after a Telepath
+        connection has been made with the remote.
+
+        This is in response to a tele:sock:init event. This occurs during
+        startup of the Proxy object or during reconnection.
+        '''
+        sock = mesg[1].get('sock')
+
+        # Reset any on handlers which the Proxy has registered with the remote
+        eper = collections.defaultdict(list)
+        for (evnt, func), (iden, filt) in self._tele_ons.items():
+            eper[evnt].append((iden, filt))
+
+        if eper:
+            job = self._txTeleJob('tele:on', ons=list(eper.items()), name=self._tele_name)
+            self.syncjob(job)
+
     def _teleSynAck(self, sock):
         '''
         Send a tele:syn to get a telepath session
@@ -504,14 +591,6 @@ class Proxy(s_eventbus.EventBus):
 
         if hisopts.get('sock:can:gzip'):
             sock.set('sock:can:gzip', True)
-
-        eper = collections.defaultdict(list)
-        for (evnt, func), (iden, filt) in self._tele_ons.items():
-            eper[evnt].append((iden, filt))
-
-        if eper:
-            job = self._txTeleJob('tele:on', ons=eper.items(), name=self._tele_name)
-            self.syncjob(job)
 
     def _txTeleJob(self, msg, **msginfo):
         '''
@@ -559,7 +638,7 @@ class Proxy(s_eventbus.EventBus):
         return meth
 
     # some methods to avoid round trips...
-    def __nonzero__(self):
+    def __bool__(self):
         return True
 
     def __eq__(self, obj):
@@ -594,6 +673,29 @@ def teleSynAck(sock, name=None, sid=None):
             raise s_common.BadMesgVers(myver=telever, hisver=vers)
 
     return synack
+
+def reminder(evnt, **info):
+    '''
+    May be used on server side to set a telepath reconnect reminder.
+
+    Args:
+        name (str): The event name to fire on reconnect
+        **info: The event metadata
+
+    Returns:
+        (bool): True if the telepath caller was notified.
+
+    NOTE:
+        This requests that the current telepath caller fire the given
+        event back to us in the event of a socket reconnect.
+    '''
+    sock = s_scope.get('sock')
+    if sock is None:
+        return False
+
+    mesg = (evnt, info)
+    sock.tx(('tele:reminder', {'mesg': mesg}))
+    return True
 
 def clientside(f):
     '''

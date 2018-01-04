@@ -1,11 +1,12 @@
 import os
-import re
 import csv
 import json
 import codecs
 import logging
 
 import xml.etree.ElementTree as x_etree
+
+import regex
 
 import synapse.common as s_common
 
@@ -84,11 +85,11 @@ def _fmt_lines(fd, gest):
 
     skipstr = gest.get('format:lines:skipre')
     if skipstr is not None:
-        skipre = re.compile(skipstr)
+        skipre = regex.compile(skipstr)
 
     muststr = gest.get('format:lines:mustre')
     if muststr is not None:
-        mustre = re.compile(muststr)
+        mustre = regex.compile(muststr)
 
     for line in fd:
 
@@ -195,6 +196,7 @@ class IngestApi:
     def __init__(self, core):
         self._gest_core = core
         self._gest_cache = {}
+        self._gest_funcs = {}
 
         self._gest_core.on('node:del', self._onDelSynIngest, form='syn:ingest')
         self._gest_core.on('node:add', self._onAddSynIngest, form='syn:ingest')
@@ -240,6 +242,16 @@ class IngestApi:
 
         self._gest_cache.pop(name, None)
 
+    def setGestFunc(self, name, func):
+        '''
+        Set an ingest function to handle a custom data format.
+
+        Args:
+            name (str): The name of the ingest format
+            func (func): The callback function to parse the data
+        '''
+        self._gest_funcs[name] = func
+
     def setGestDef(self, name, idef):
         '''
         Set an ingest definition by storing it in the cortex.
@@ -253,7 +265,7 @@ class IngestApi:
         '''
         props = {
             'time': s_common.now(),
-            'text': json.dumps(idef),
+            'text': json.dumps(idef, sort_keys=True, separators=(',', ':')),
         }
 
         node = self._gest_core.formTufoByProp('syn:ingest', name, **props)
@@ -274,11 +286,27 @@ class IngestApi:
             iapi.addGestData('foo:bar', data)
 
         '''
+        func = self._gest_funcs.get(name)
+        if func is not None:
+            with self._gest_core.getCoreXact() as xact:
+                return func(data)
+
         gest = self._gest_cache.get(name)
         if gest is None:
             raise s_common.NoSuchTufo(prop='syn:ingest', valu=name)
 
         gest.ingest(self._gest_core, data=data)
+
+    def addGestDatas(self, name, datas):
+        '''
+        A bulk version of the addGestData API.
+
+        Args:
+            name (str): The ingest data format name.
+            datas ([obj]): A list of data items to ingest.
+        '''
+        with self._gest_core.getCoreXact() as xact:
+            [self.addGestData(name, data) for data in datas]
 
     # TODO - use open/format directives to parse raw file data
     #def addGestFd(self, name, fd):
@@ -298,12 +326,12 @@ class Ingest(EventBus):
         self._i_glab = s_gene.GeneLab()
 
         self._tvar_cache = {}
-        self._tvar_regex = re.compile('{{(\w+)}}')
+        self._tvar_regex = regex.compile('{{(\w+)}}')
 
-    def _re_compile(self, regex):
-        ret = self._i_res.get(regex)
+    def _re_compile(self, regexp):
+        ret = self._i_res.get(regexp)
         if ret is None:
-            self._i_res[regex] = ret = re.compile(regex)
+            self._i_res[regexp] = ret = regex.compile(regexp)
         return ret
 
     def get(self, name, defval=None):
@@ -576,6 +604,20 @@ class Ingest(EventBus):
                 for tag in scope.iter('tags'):
                     core.addTufoTag(tufo, tag)
                     self.fire('gest:prog', act='tag')
+
+                for tagv in info.get('tags', ()):
+
+                    # if it's a simple tag string, add and move along
+                    if isinstance(tagv, str):
+                        core.addTufoTag(tufo, tag)
+                        self.fire('gest:prog', act='tag')
+                        continue
+
+                    # otherwise it's an iteration compatible prop dict
+                    tags = [t.lower() for t in self._iter_prop(core, data, tagv, scope)]
+                    for tag in tags:
+                        core.addTufoTag(tufo, tag)
+                        self.fire('gest:prog', act='tag')
 
                 if info.get('savevar'):
                     _savevar = tufo[1].get(tufo[1].get('tufo:form'))

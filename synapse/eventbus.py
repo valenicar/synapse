@@ -1,8 +1,9 @@
 import gc
 import atexit
+import signal
 import logging
 import threading
-import traceback
+import contextlib
 import collections
 
 import synapse.common as s_common
@@ -13,7 +14,7 @@ import synapse.lib.thishost as s_thishost
 logger = logging.getLogger(__name__)
 finlock = threading.RLock()
 
-def _fini_atexit():
+def _fini_atexit(): # pragma: no cover
 
     for item in gc.get_objects():
 
@@ -28,7 +29,7 @@ def _fini_atexit():
             item.fini()
 
         except Exception as e:
-            logger.exception('atexit fini fail: %r' % (ebus,))
+            logger.exception('atexit fini fail: %r' % (item,))
 
 atexit.register(_fini_atexit)
 
@@ -100,24 +101,25 @@ class EventBus(object):
             func (function):    A callback function to receive event tufo
             **filts:            Optional positive filter values for the event tuple.
 
+        Examples:
+
+            Add a callback function and fire it:
+
+                def baz(event):
+                    x = event[1].get('x')
+                    y = event[1].get('y')
+                    return x + y
+
+                d.on('foo', baz, x=10)
+
+                # this fire triggers baz...
+                d.fire('foo', x=10, y=20)
+
+                # this fire does not ( due to filt )
+                d.fire('foo', x=30, y=20)
+
         Returns:
-            (None)
-
-        Example:
-
-            def baz(event):
-                x = event[1].get('x')
-                y = event[1].get('y')
-                return x + y
-
-            d.on('foo', baz, x=10)
-
-            # this fire triggers baz...
-            d.fire('foo', x=10, y=20)
-
-            # this fire does not ( due to filt )
-            d.fire('foo', x=30, y=20)
-
+            None:
         '''
         self._syn_funcs[evnt].append((func, tuple(filts.items())))
 
@@ -186,13 +188,13 @@ class EventBus(object):
                 ret.append(func(mesg))
 
             except Exception as e:
-                logger.exception(e)
+                logger.exception('Ebus %s error with mesg %s', self, mesg)
 
         for func in self._syn_links:
             try:
                 ret.append(func(mesg))
             except Exception as e:
-                logger.exception(e)
+                logger.exception('Ebus %s error with mesg %s', self, mesg)
 
         return ret
 
@@ -221,7 +223,7 @@ class EventBus(object):
             try:
                 func()
             except Exception as e:
-                traceback.print_exc()
+                logger.exception('Ebus %s error during fini function', self)
 
         # explicitly release the handlers
         self._syn_funcs.clear()
@@ -259,15 +261,33 @@ class EventBus(object):
 
     def main(self):
         '''
-        Helper function to block until shutdown ( and handle ctrl-c etc ).
+        Helper function to block until shutdown ( and handle ctrl-c and SIGTERM).
 
-        Example:
+        Examples:
+            Run a event bus, wait until main() has returned, then do other stuff::
 
-            dmon.main()
-            # we have now fini()d
+                foo = EventBus()
+                foo.main()
+                dostuff()
 
+        Notes:
+            This does fire a 'ebus:main' event prior to entering the
+            waitfini() loop.
+
+        Returns:
+            None
         '''
+        def sighandler(signum, frame):
+            print('Caught signal {}, shutting down'.format(signum))
+            self.fini()
+
         try:
+            signal.signal(signal.SIGTERM, sighandler)
+        except Exception as e:  # pragma: no cover
+            logger.exception('Unable to register SIGTERM handler in eventbus.')
+
+        try:
+            self.fire('ebus:main')
             self.waitfini()
         except KeyboardInterrupt as e:
             print('ctrl-c caught: shutting down')
@@ -352,6 +372,43 @@ class EventBus(object):
         '''
         info.update(s_common.excinfo(exc))
         self.log(logging.ERROR, str(exc), **info)
+
+    @contextlib.contextmanager
+    def onWith(self, evnt, func, **filts):
+        '''
+        A context manager which can be used to add a callback and remove it when
+        using a ``with`` statement.
+
+        Args:
+            evnt (str):         An event name
+            func (function):    A callback function to receive event tufo
+            **filts:            Optional positive filter values for the event tuple.
+
+        Examples:
+
+            Temporarily add the baz callback function and use it.
+
+                def baz(event):
+                    x = event[1].get('x')
+                    y = event[1].get('y')
+                    return x + y
+
+                with d.onWith('foo', baz, x=10):
+                    # this fire triggers baz...
+                    d.fire('foo', x=10, y=20)
+
+                # this does NOT fire triggers baz since it is outside
+                # of the context manager.
+                d.fire('foo', x=10, y=30)
+
+        '''
+        self.on(evnt, func, **filts)
+        # Allow exceptions to propagate during the context manager
+        # but ensure we cleanup our temporary callback
+        try:
+            yield self
+        finally:
+            self.off(evnt, func)
 
 class Waiter:
     '''
@@ -476,7 +533,7 @@ class BusRef(EventBus):
             name (str): The name/iden of the EventBus instance.
         '''
         if self.ctor is None:
-            raise s_common.NoSuchCtor(mesg='BusRef.gen() requires ctor')
+            raise s_common.NoSuchCtor(name=name, mesg='BusRef.gen() requires ctor')
 
         with self.lock:
 

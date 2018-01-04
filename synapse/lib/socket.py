@@ -11,8 +11,10 @@ import collections
 
 logger = logging.getLogger(__name__)
 
+import synapse.glob as s_glob
 import synapse.common as s_common
 import synapse.lib.scope as s_scope
+import synapse.lib.msgpack as s_msgpack
 import synapse.lib.threads as s_threads
 import synapse.lib.thisplat as s_thisplat
 
@@ -22,7 +24,7 @@ def sockgzip(byts):
     blen = len(byts)
     byts = zlib.compress(byts)
     #print('GZIP DELTA: %d -> %d' % (blen,len(byts)))
-    return s_common.msgenpack(('sock:gzip', {'data': byts}))
+    return s_msgpack.en(('sock:gzip', {'data': byts}))
 
 class Socket(EventBus):
     '''
@@ -37,7 +39,8 @@ class Socket(EventBus):
         EventBus.__init__(self)
 
         self.sock = sock  # type: socket.socket
-        self.unpk = msgpack.Unpacker(use_list=0, encoding='utf8')
+        self.unpk = msgpack.Unpacker(use_list=False, encoding='utf8',
+                                     unicode_errors='surrogatepass')
         self.iden = s_common.guid()
 
         self.info = info
@@ -57,7 +60,21 @@ class Socket(EventBus):
         self.fire('sock:tx:add')
 
     def send(self, byts):
-        return self.sock.send(byts)
+        '''
+        Send bytes on the socket.
+
+        Args:
+            byts (bytes): The bytes to send
+
+        Returns:
+            int: The sent byte count (or None) on fini()
+        '''
+        try:
+            return self.sock.send(byts)
+        except (OSError, ConnectionError) as e:
+            logger.exception('Error during socket.send() - shutting down socket [%s]', self)
+            self.fini()
+            return None
 
     def getTxQ(self):
         return list(self.txque)
@@ -172,7 +189,7 @@ class Socket(EventBus):
         If present this API is safe for use with a socket in a Plex().
         '''
 
-        byts = s_common.msgenpack(mesg)
+        byts = s_msgpack.en(mesg)
         return self.txbytes(byts)
 
     def txbytes(self, byts):
@@ -190,7 +207,8 @@ class Socket(EventBus):
         try:
             self.sendall(byts)
             return True
-        except socket.error as e:
+        except (OSError, ConnectionError) as e:
+            logger.exception('Error during socket.txbytes() - shutting down socket [%s]', self)
             self.fini()
             return False
 
@@ -229,7 +247,7 @@ class Socket(EventBus):
                 yield self.rxque.popleft()
 
         except Exception as e:
-            logger.exception(e)
+            logger.exception('Error during unpacking / yielding message - shutting down socket [%s]', self)
             self.fini()
             return
 
@@ -261,6 +279,7 @@ class Socket(EventBus):
         except Exception as e:
             return None, None
 
+        logger.debug('Accepting connection from %r', addr)
         sock = self.__class__(sock, accept=True)
 
         relay = self.get('relay')
@@ -454,8 +473,16 @@ class Plex(EventBus):
 
             try:
                 rxlist, txlist, xxlist = select.select(self._plex_rxsocks, self._plex_txsocks, self._plex_xxsocks, 0.2)
-            # mask "bad file descriptor" race and go around again...
             except Exception as e:
+                # go through ALL of our sockets, and call _finiPlexSock on that socket if it has been fini'd or
+                # if those sockets fileno() call is -1
+                # The .copy() method is used since it is faster for small lists.
+                # The identity check of -1 is reliant on a CPython optimization which keeps a single
+                # addressed copy of integers between -5 and 256 in. memory
+                logger.exception('Error during socket select. Culling fini or fileno==-1 sockets.')
+                [self._finiPlexSock(sck) for sck in self._plex_rxsocks.copy() if sck.isfini or sck.fileno() is -1]
+                [self._finiPlexSock(sck) for sck in self._plex_txsocks.copy() if sck.isfini or sck.fileno() is -1]
+                [self._finiPlexSock(sck) for sck in self._plex_xxsocks.copy() if sck.isfini or sck.fileno() is -1]
                 continue
 
             try:

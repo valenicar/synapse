@@ -2,10 +2,9 @@ import time
 import random
 
 import synapse.common as s_common
-import synapse.daemon as s_daemon
-import synapse.telepath as s_telepath
 
 import synapse.lib.webapp as s_webapp
+import synapse.lib.msgpack as s_msgpack
 import synapse.lib.remcycle as s_remcycle
 
 import synapse.models.inet as s_inet
@@ -555,7 +554,7 @@ class HypnosTest(SynTest, AsyncTestCase):
             self.true('fakeipify:jsonip' in hypo_obj._web_apis)
             self.true('fakeipify:jsonip' in hypo_obj._web_api_ingests)
             self.true('fakeipify:jsonip' in hypo_obj._syn_funcs)
-            self.true('fakeipify:jsonip:ipv4' in hypo_obj.web_core._syn_funcs)
+            self.nn(hypo_obj.web_core.getTufoByProp('syn:ingest', 'fakeipify:jsonip:ipv4'))
 
             # Check repr!
             r = repr(hypo_obj)
@@ -589,7 +588,7 @@ class HypnosTest(SynTest, AsyncTestCase):
             self.true('fakeipify:jsonip' in hypo_obj._web_apis)
             self.true('fakeipify:jsonip' in hypo_obj._web_api_ingests)
             self.true('fakeipify:jsonip' in hypo_obj._syn_funcs)
-            self.true('fakeipify:jsonip:ipv4' in hypo_obj.web_core._syn_funcs)
+            self.nn(hypo_obj.web_core.getTufoByProp('syn:ingest', 'fakeipify:jsonip:ipv4'))
             self.true('fakeipify:jsonip' in hypo_obj._web_api_gest_opens)
 
             # Now change something with ipify, register it and force a reload to occur
@@ -612,7 +611,7 @@ class HypnosTest(SynTest, AsyncTestCase):
             self.true('fakeipify:duckip' in hypo_obj._web_apis)
             self.true('fakeipify:duckip' in hypo_obj._web_api_ingests)
             self.true('fakeipify:duckip' in hypo_obj._syn_funcs)
-            self.true('fakeipify:duckip:foobar' in hypo_obj.web_core._syn_funcs)
+            self.nn(hypo_obj.web_core.getTufoByProp('syn:ingest', 'fakeipify:duckip:foobar'))
             self.true('fakeipify:duckip' in hypo_obj._web_api_gest_opens)
 
         # ensure all the expected events fired during testing
@@ -776,7 +775,7 @@ class HypnosTest(SynTest, AsyncTestCase):
             hypo_obj.addWebConfig(config=gconf)
 
             self.true('fakeipify:jsonip' in hypo_obj._syn_funcs)
-            self.true('fakeipify:jsonip:ipv4' in hypo_obj.web_core._syn_funcs)
+            self.nn(hypo_obj.web_core.getTufoByProp('syn:ingest', 'fakeipify:jsonip:ipv4'))
 
             data = {}
 
@@ -981,7 +980,7 @@ class HypnosTest(SynTest, AsyncTestCase):
             cached_data = hypo_obj.webCacheGet(jid=jid)
             self.nn(cached_data)
             # Ensure the cached data can be msgpacked as needed.
-            buf = msgenpack(cached_data)
+            buf = s_msgpack.en(cached_data)
             self.true(isinstance(buf, bytes))
             # Ensure that the existing job tufo is untouched when caching.
             self.true('ingdata' in job[1].get('task')[2].get('resp'))
@@ -1026,3 +1025,25 @@ class HypnosTest(SynTest, AsyncTestCase):
             resp = job.get('task')[2].get('resp')  # type: dict
             self.eq(resp.get('code'), 200)
             self.true(resp.get('data').get('ret'))
+
+    def test_remcycle_global_fetch(self):
+        self.thisHostMustNot(platform='windows')
+
+        data = {}
+        evt = threading.Event()
+
+        def callback(resp, fd):
+            self.eq(resp.get('code'), 200)
+            data['body'] = fd.read()
+            data['resp'] = resp
+            fd.close()
+            evt.set()
+
+        url = 'http://localhost:{PORT}/v1/ip?format=json'.format(PORT=self.port)
+
+        s_remcycle.fetch(url, callback)
+
+        evt.wait(3)
+        self.nn(data.get('body'))
+        body = json.loads(data.get('body').decode())
+        self.eq(body.get('status'), 'ok')

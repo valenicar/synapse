@@ -1,4 +1,6 @@
+import os
 import json
+import shutil
 import logging
 import itertools
 import threading
@@ -7,15 +9,18 @@ import collections
 import synapse.common as s_common
 import synapse.dyndeps as s_dyndeps
 import synapse.reactor as s_reactor
+import synapse.eventbus as s_eventbus
 import synapse.telepath as s_telepath
 
 import synapse.cores.storage as s_storage
 
 import synapse.lib.auth as s_auth
+import synapse.lib.fifo as s_fifo
 import synapse.lib.tags as s_tags
 import synapse.lib.tufo as s_tufo
 import synapse.lib.cache as s_cache
 import synapse.lib.queue as s_queue
+import synapse.lib.scope as s_scope
 import synapse.lib.ingest as s_ingest
 import synapse.lib.syntax as s_syntax
 import synapse.lib.reflect as s_reflect
@@ -23,6 +28,7 @@ import synapse.lib.service as s_service
 import synapse.lib.hashset as s_hashset
 import synapse.lib.threads as s_threads
 import synapse.lib.modules as s_modules
+import synapse.lib.msgpack as s_msgpack
 import synapse.lib.trigger as s_trigger
 import synapse.lib.version as s_version
 import synapse.lib.interval as s_interval
@@ -60,12 +66,18 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         Runtime.__init__(self)
         EventBus.__init__(self)
 
+        logger.debug('Initializing Cortex')
+
+        self.on('node:del', self._onDelFifo, form='syn:fifo')
         self.on('node:del', self._onDelAuthRole, form='syn:auth:role')
         self.on('node:del', self._onDelAuthUser, form='syn:auth:user')
         self.on('node:add', self._onAddAuthUserRole, form='syn:auth:userrole')
         self.on('node:del', self._onDelAuthUserRole, form='syn:auth:userrole')
         self.on('node:del', self._onDelSynTag, form='syn:tag')
         self.on('node:form', self._onFormSynTag, form='syn:tag')
+
+        self.on('fifo:ack', self._onFifoAck)
+        self.on('fifo:sub', self._onFifoSub)
 
         # a cortex may have a ref to an axon
         self.axon = None
@@ -80,6 +92,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         self.onConfOptSet('caching', self._onSetCaching)
         self.onConfOptSet('axon:url', self._onSetAxonUrl)
 
+        logger.debug('Setting Cortex conf opts')
         self.setConfOpts(conf)
 
         self._link = link
@@ -141,6 +154,8 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         self._core_tags = s_cache.FixedCache(maxsize=10000, onmiss=self._getFormFunc('syn:tag'))
         self._core_tagforms = s_cache.FixedCache(maxsize=10000, onmiss=self._getFormFunc('syn:tagform'))
 
+        self._core_fifos = s_eventbus.BusRef(ctor=self._initCoreFifo)
+
         self.tufosbymeths = {}
 
         # we keep an in-ram set of "ephemeral" nodes which are runtime-only ( non-persistent )
@@ -196,12 +211,14 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         self.isok = True
 
         DataModel.__init__(self)
+        self._addUnivProps()
 
         self._loadTrigNodes()
 
         self.myfo = self.formTufoByProp('syn:core', 'self')
         self.isnew = self.myfo[1].get('.new', False)
 
+        logger.debug('Loading coremodules from s_modules.ctorlist')
         self.modelrevlist = []
         with self.getCoreXact() as xact:
             mods = [(ctor, modconf) for ctor, smod, modconf in s_modules.ctorlist]
@@ -227,6 +244,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         self.setOperFunc('dset', self._stormOperDset)
 
         # allow modules a shot at hooking cortex events for model ctors
+        logger.debug('Executing s_modules.call(addCoreOns, self)')
         for name, ret, exc in s_modules.call('addCoreOns', self):
             if exc is not None:
                 logger.warning('%s.addCoreOns: %s' % (name, exc))
@@ -235,7 +253,11 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
 
         s_ingest.IngestApi.__init__(self, self)
 
+        logger.debug('Setting the syn:core:synapse:version value.')
         self.setBlobValu('syn:core:synapse:version', s_version.version)
+
+        # The iden of self.myfo is persistent
+        logger.debug('Done starting up cortex %s', self.myfo[0])
 
     def addRuntNode(self, form, valu, props=None):
         '''
@@ -262,6 +284,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         node[1][form] = norm
         node[1]['tufo:form'] = form
         node[1]['node:created'] = s_common.now()
+        node[1]['node:ndef'] = s_common.guid((form, norm))
 
         self.runt_props[(form, None)].append(node)
         self.runt_props[(form, norm)].append(node)
@@ -287,14 +310,198 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             prop (str):  The property name
 
         Returns:
-            (boolean):  True if the property is a runtime node form.
+            (bool):  True if the property is a runtime node form.
         '''
         return prop in self.runt_forms
+
+    def getCorePath(self, *paths):
+        '''
+        Construct a path relative to the cortex metadata dir (or None).
+
+        Args:
+            *paths ([str,]): A set of path elements
+
+        Returns:
+            (str):  The full path ( or None ).
+        '''
+        dirn = self.getConfOpt('dir')
+        if dirn is None:
+            return None
+
+        return s_common.genpath(dirn, *paths)
+
+    def reqCorePath(self, *paths):
+        '''
+        Use getCorePath and raise if dir is not set.
+
+        Args:
+            paths ([str,...]):  A list of path elements to join.
+
+        Returns:
+            (str):  The full path for the cortex directory.
+
+        Raises:
+            NoSuchOpt
+        '''
+        retn = self.getCorePath(*paths)
+        if retn is None:
+            raise s_common.ReqConfOpt(name='dir', mesg='reqCorePath requires a cortex dir')
+        return retn
+
+    def getCoreFifo(self, name):
+        '''
+        Return a Fifo object by name.
+
+        Args:
+            name (str): The :name of the syn:fifo node.
+
+        Returns:
+            (synapse.lib.fifo.Fifo): The Fifo object.
+        '''
+        return self._core_fifos.gen(name)
+
+    def putCoreFifo(self, name, item):
+        '''
+        Add an item to a cortex fifo.
+
+        Args:
+            name (str): The syn:fifo:name of the fifo.
+            item (obj): The object to put in the fifo.
+        '''
+        self.reqperm(('fifo:put', {'name': name}))
+        fifo = self._core_fifos.gen(name)
+        fifo.put(item)
+
+    def extCoreFifo(self, name, items):
+        '''
+        Add a list of items to a cortex fifo.
+
+        Args:
+            name (str): The name of the fifo
+            items (list): A list of items to add
+        '''
+        self.reqperm(('fifo:put', {'name': name}))
+        fifo = self._core_fifos.gen(name)
+        [fifo.put(item) for item in items]
+
+    def ackCoreFifo(self, name, seqn):
+        '''
+        Acknowledge transmission of fifo items.
+
+        Args:
+            name (str): The syn:fifo:name of the fifo.
+            nseq (int): The next expected sequence.
+        '''
+        self.reqperm(('fifo:ack', {'name': name}))
+        fifo = self._core_fifos.gen(name)
+        fifo.ack(seqn)
+
+    def _onFifoSub(self, mesg):
+        name = mesg[1].get('name')
+        xmit = self._getTeleFifoXmit(name)
+        self.subCoreFifo(name, xmit=xmit)
+
+    def _onFifoAck(self, mesg):
+        name = mesg[1].get('name')
+        seqn = mesg[1].get('seqn')
+        self.ackCoreFifo(name, seqn)
+
+    def _getTeleFifoXmit(self, name):
+
+        sock = s_scope.get('sock')
+        if sock is None:
+            return None
+
+        def xmit(qent):
+            sock.tx(('fifo:xmit', {'name': name, 'qent': qent}))
+
+        return xmit
+
+    def subCoreFifo(self, name, xmit=None):
+        '''
+        Provde an xmit function for a given core fifo.
+
+        Args:
+            name (str): The name of the fifo.
+            xmit (func): A fifo xmit func.
+
+        NOTE: if xmit is None, it is assumed that the
+              caller is a remote telepath client and the
+              socket.tx function is used.
+        '''
+        self.reqperm(('fifo:sub', {'name': name}))
+        fifo = self._core_fifos.gen(name)
+
+        if xmit is None:
+            xmit = self._getTeleFifoXmit(name)
+            s_telepath.reminder('fifo:sub', name=name)
+
+        fifo.resync(xmit=xmit)
+
+    def _initCoreFifo(self, name):
+        node = self.getTufoByProp('syn:fifo:name')
+        if node is None:
+            raise s_common.NoSuchFifo(name=name)
+
+        iden = node[1].get('syn:fifo')
+        path = self.reqCorePath('fifos', iden)
+        if not os.path.isdir(path):
+            os.makedirs(path, exist_ok=True)
+
+        conf = dict(self.getConfOpt('fifo:defs'))
+
+        conf['dir'] = path
+
+        # TODO default fifo config info in core config?
+        return s_fifo.Fifo(conf)
+
+    def _onDelFifo(self, mesg):
+
+        node = mesg[1].get('node')
+
+        iden = node[1].get('syn:fifo')
+        name = node[1].get('syn:fifo:name')
+
+        fifo = self._core_fifos.pop(name)
+        if fifo is not None:
+            fifo.fini()
+
+        path = self.getCorePath('fifos', iden)
+        if path is not None and os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+
+    def getCoreTasks(self):
+        '''
+        Get a list of tasks which have been registered on the Cortex.
+
+        Returns:
+            list: A list of tasks which may be tasked via storm task() command.
+        '''
+        ret = [name.split('task:')[1] for name in list(self._syn_funcs.keys()) if name.startswith('task:')]
+        ret.sort()
+        return ret
+
+    def isRuntProp(self, prop):
+        '''
+        Return True if the given property name is a runtime node prop.
+
+        Args:
+            prop (str): The property name
+
+        Returns:
+            (bool): True if the property is a runtime node property.
+        '''
+        return (prop, None) in self.runt_props
 
     @staticmethod
     @confdef(name='common_cortex')
     def _cortex_condefs():
         confdefs = (
+
+            ('dir', {'type': 'str',
+                        'doc': 'The cortex metadata directory'}),
+
+            ('fifo:defs', {'defval': {}, 'doc': 'Config defaults for core fifos'}),
 
             ('autoadd', {'type': 'bool', 'asloc': 'autoadd', 'defval': 1,
                          'doc': 'Automatically add forms for props where type is form'}),
@@ -479,6 +686,11 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
                     pdef = self.getPropDef(full)
                     self.addRuntNode('syn:prop', full, pdef[1])
 
+    def _addUnivProps(self):
+        for pname in self.uniprops:
+            pdef = self.getPropDef(pname)
+            self.addRuntNode('syn:prop', pname, pdef[1])
+
     def revModlVers(self, name, vers, func):
         '''
         Update and track a model version using a callback function.
@@ -542,6 +754,23 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
 
         '''
         return self._auth_roles.get(user)
+
+    def reqperm(self, perm, user=None):
+        '''
+        Require a given permission (or raise AuthDeny)
+
+        Args:
+            perm ((str,dict)): A perm tuple
+            user (str): The user to check (or self)
+
+        Raises:
+            AuthDeny: The user is not allowed
+        '''
+        if user is None:
+            user = s_auth.whoami()
+
+        if not self.allowed(perm, user=user):
+            raise s_common.AuthDeny(perm=perm, user=user)
 
     def allowed(self, perm, user=None):
         '''
@@ -1207,6 +1436,15 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
     def _onSetMods(self, mods):
         self.addCoreMods(mods)
 
+    def getCoreMods(self):
+        '''
+        Get a list of CoreModules loaded in the current Cortex.
+
+        Returns:
+            list: List of python paths to CoreModule classes which are loaded in the current Cortex.
+        '''
+        return list(self.coremods.keys())
+
     def _onSetCaching(self, valu):
         if not valu:
             self.cache_fifo.clear()
@@ -1335,7 +1573,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             core.addSpliceFd(fd)
         '''
         def save(mesg):
-            fd.write(s_common.msgenpack(mesg))
+            fd.write(s_msgpack.en(mesg))
         self.on('splice', save)
 
     def eatSpliceFd(self, fd):
@@ -1349,7 +1587,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             core.eatSyncFd(fd)
 
         '''
-        for chnk in s_common.chunks(s_common.msgpackfd(fd), 1000):
+        for chnk in s_common.chunks(s_msgpack.iterfd(fd), 1000):
             self.splices(chnk)
 
     def _onDelSynTag(self, mesg):
@@ -1873,21 +2111,25 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             tag (str):  A synapse tag string
             times ((int,)): A list of time stamps in milli epoch
 
+        Examples:
+
+            Form a node, and add the baz.faz tag to it::
+
+                node = core.formTufoByProp('foo','bar')
+                node = core.addTufoTag(tufo,'baz.faz')
+
+            Add a timeboxed tag to a node::
+
+                node = core.addTufoTag(tufo,'foo.bar@2012-2016')
+
+
+            Add a list of times sample times to a tag to create a timebox
+
+                timeslist = (1513382400000, 1513468800000)
+                node = core.addTufoTag(tufo,'hehe.haha', times=timelist)
+
         Returns:
             ((str,dict)): The node in tuple form (with updated props)
-
-        Example:
-
-            node = core.formTufoByProp('foo','bar')
-            node = core.addTufoTag(tufo,'baz.faz')
-
-            # add a tag with a time box
-            node = core.addTufoTag(tufo,'foo.bar@2012-2016')
-
-            # add a tag with a list of sample times used to
-            # create a timebox.
-            node = core.addTufoTag(tufo,'hehe.haha', times=timelist)
-
         '''
         iden = reqiden(tufo)
 
@@ -1941,7 +2183,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             if ival is not None:
                 tufo = self.setTufoIval(tufo, tagp, ival)
 
-            return tufo
+        return tufo
 
     def delTufoTag(self, tufo, tag):
         '''
@@ -1952,10 +2194,18 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             tag (str):          The tag to remove
 
         Example:
+            Remove the tag baz tag (and its subtags) from all tufos tagged baz.faz::
 
-            for tufo in core.getTufosByTag('baz.faz'):
-                core.delTufoTag(tufo,'baz')
+                for tufo in core.getTufosByTag('baz.faz'):
+                    core.delTufoTag(tufo,'baz')
 
+            Remove a tag from a tufo and then do something with the tufo::
+
+                tufo = core.delTufoTag(tufo, 'hehe.haha')
+                dostuff(tufo)
+
+        Returns:
+            ((str,dict)): The node in tuple form (with updated props)
         '''
         iden = reqiden(tufo)
         dark = iden[::-1]
@@ -1995,6 +2245,8 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
                 xact.trigger(tufo, 'node:tag:del', form=form, tag=subtag)
 
                 self.delTufoIval(tufo, subprop)
+
+        return tufo
 
     def getTufosByTag(self, tag, form=None, limit=None):
         '''
@@ -2169,6 +2421,9 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             knowns = self.statfuncs.keys()
             raise s_common.NoSuchStat(name=stat, knowns=knowns)
 
+        if valu is not None:
+            valu, _ = self.getPropNorm(prop, valu)
+
         rows = self.getRowsByProp(prop, valu=valu, mintime=mintime, maxtime=maxtime, limit=limit)
         return statfunc(rows)
 
@@ -2214,7 +2469,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
                 rows = [(iden, p, v, tstamp) for (p, v) in props]
 
                 rows.append((iden, form, iden, tstamp))
-                rows.append((iden, 'prim:json', json.dumps(item), tstamp))
+                rows.append((iden, 'prim:json', json.dumps(item, sort_keys=True, separators=(',', ':')), tstamp))
 
             self.addRows(rows)
 
@@ -2279,18 +2534,21 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             return
 
         props = self.getFormReqs(form)
+        props = set(props)
+
+        # Add in universal props which are required
+        props = props.union(self.unipropsreq)
 
         # Return fast for perf
         if not props:
             return
-
-        props = set(props)
 
         # Special case for handling syn:prop:glob=1 on will not have a ptype
         # despite the model requiring a ptype to be present.
         if fulls.get('syn:prop:glob') and 'syn:prop:ptype' in props:
             props.remove('syn:prop:ptype')
 
+        # Compute any missing props
         missing = props - set(fulls)
         if missing:
             raise s_common.PropNotFound(mesg='Node is missing required a prop during formation',
@@ -2382,6 +2640,9 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             node.  After node creation is finished, ``node:add`` events are
             fired on for the Cortex event bus, splices and triggers.
 
+            For each property in the newly created node, a ``node:prop:set``
+            event will be fired.
+
         Returns:
             ((str, dict)): The newly formed tufo, or the existing tufo if
             the node already exists.  The ephemeral property ".new" can be
@@ -2391,9 +2652,9 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         if ctor is not None:
             return ctor(prop, valu, **props)
 
+        if self.enforce:
+            self.reqTufoForm(prop)
         tname = self.getPropTypeName(prop)
-        if tname is None and self.enforce:
-            raise s_common.NoSuchForm(name=prop)
 
         # special case for adding nodes with a guid primary property
         # if the value None is specified, generate a new guid and skip
@@ -2428,8 +2689,12 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             self._addDefProps(prop, fulls)
 
             fulls[prop] = valu
+
+            # Set universal node values
             fulls['tufo:form'] = prop
             fulls['node:created'] = s_common.now()
+            fulls['node:ndef'] = s_common.guid((prop, valu))
+            # fulls['node:ndef'] = self.reqPropNorm('node:ndef', (prop, valu))[0]
 
             # Examine the fulls dictionary and identify any props which are
             # themselves forms, and extract the form/valu/subs from the fulls
@@ -2476,6 +2741,12 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             xact.spliced('node:add', form=prop, valu=valu, props=props)
             xact.trigger(tufo, 'node:add', form=prop)
 
+            # fire prop set notifications for each prop
+            for p, v in tufo[1].items():
+                # fire notification event
+                xact.fire('node:prop:set', form=prop, valu=valu, prop=p, newv=v, oldv=None, node=tufo)
+                xact.trigger(tufo, 'node:prop:set', form=prop, prop=p)
+
         tufo[1]['.new'] = True
         return tufo
 
@@ -2494,7 +2765,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         '''
         splitp = form + ':'
         for name in list(fulls.keys()):
-            if name in ('tufo:form', 'node:created', 'node:loc'):
+            if name in self.uniprops:
                 continue
             if not self.isSetPropOk(name, isadd):
                 prop = name.split(splitp)[1]
@@ -2513,7 +2784,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             list: List of tuples (prop,valu,**props) for consumption by formTufoByProp.
         '''
         ret = []
-        skips = ('tufo:form', 'node:created', 'node:loc')
+        skips = self.uniprops
         valu = fulls.get(form)
         for fprop, fvalu in fulls.items():
             if fprop in skips:
@@ -2550,9 +2821,6 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
         form = tufo[1].get('tufo:form')
         valu = tufo[1].get(form)
 
-        # fire notification events
-        self.fire('node:del', form=form, valu=valu, node=tufo)
-
         for name, tick in self.getTufoDsets(tufo):
             self.delTufoDset(tufo, name)
 
@@ -2565,6 +2833,16 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
             self.delRowsById(iden)
             # delete any dark props/rows
             self.delRowsById(iden[::-1])
+
+            # fire set None events for the props.
+            pref = form + ':'
+            for p, v in tufo[1].items():
+                if not p.startswith(pref):
+                    continue
+
+                xact.fire('node:prop:set', form=form, valu=valu, prop=p, newv=None, oldv=v, node=tufo)
+
+            xact.fire('node:del', form=form, valu=valu, node=tufo)
             xact.spliced('node:del', form=form, valu=valu)
             xact.trigger(tufo, 'node:del', form=form)
 
@@ -2731,7 +3009,11 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
 
             valu = props.get(name)
 
-            prop = form + ':' + name
+            if name in self.uniprops:
+                prop = name
+
+            else:
+                prop = form + ':' + name
 
             oldv = None
             if tufo is not None:
@@ -2739,7 +3021,7 @@ class Cortex(EventBus, DataModel, Runtime, s_ingest.IngestApi):
 
             valu, subs = self.getPropNorm(prop, valu, oldval=oldv)
             if tufo is not None:
-                if tufo[1].get(prop) == valu:
+                if oldv == valu:
                     props.pop(name, None)
                     continue
                 _isadd = not bool(oldv)

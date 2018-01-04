@@ -7,6 +7,147 @@ from synapse.tests.common import *
 
 class InetModelTest(SynTest):
 
+    def test_model_type_inet_url(self):
+        tlib = s_types.TypeLib()
+
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:url', 'newp')
+        self.eq(tlib.getTypeNorm('inet:url', 'http://WoOt.com/HeHe')[0], 'http://woot.com/HeHe')
+        self.eq(tlib.getTypeNorm('inet:url', 'HTTP://WoOt.com/HeHe')[0], 'http://woot.com/HeHe')
+        self.eq(tlib.getTypeNorm('inet:url', 'HttP://Visi:Secret@WoOt.com/HeHe&foo=10')[0],
+                'http://Visi:Secret@woot.com/HeHe&foo=10')
+
+        self.raises(BadTypeValu, tlib.getTypeParse, 'inet:url', 'newp')
+        self.eq(tlib.getTypeParse('inet:url', 'http://WoOt.com/HeHe')[0], 'http://woot.com/HeHe')
+        self.eq(tlib.getTypeParse('inet:url', 'HTTP://WoOt.com/HeHe')[0], 'http://woot.com/HeHe')
+        self.eq(tlib.getTypeParse('inet:url', 'HttP://Visi:Secret@WoOt.com/HeHe&foo=10')[0],
+                'http://Visi:Secret@woot.com/HeHe&foo=10')
+
+        self.eq(tlib.getTypeRepr('inet:url', 'http://woot.com/HeHe'), 'http://woot.com/HeHe')
+
+    def test_model_typeinet_ipv4(self):
+        tlib = s_types.TypeLib()
+
+        self.eq(tlib.getTypeNorm('inet:ipv4', 0x01020304)[0], 0x01020304)
+        self.eq(tlib.getTypeNorm('inet:ipv4', '0x01020304')[0], 0x01020304)
+        self.eq(tlib.getTypeParse('inet:ipv4', '1.2.3.4')[0], 0x01020304)
+        self.eq(tlib.getTypeRepr('inet:ipv4', 0x01020304), '1.2.3.4')
+
+    def tes_model_type_inet_tcp4(self):
+        tlib = s_types.TypeLib()
+
+        self.eq(tlib.getTypeNorm('inet:tcp4', '1.2.3.4:2')[0], 0x010203040002)
+        self.eq(tlib.getTypeNorm('inet:tcp4', 0x010203040002)[0], 0x010203040002)
+
+        self.raises(BadTypeValu, tlib.getTypeParse, 'inet:tcp4', 'newp')
+        self.eq(tlib.getTypeParse('inet:tcp4', '1.2.3.4:2')[0], 0x010203040002)
+
+        self.eq(tlib.getTypeRepr('inet:tcp4', 0x010203040002), '1.2.3.4:2')
+
+    def test_model_type_inet_udp4(self):
+        tlib = s_types.TypeLib()
+
+        self.eq(tlib.getTypeNorm('inet:udp4', '1.2.3.4:2')[0], 0x010203040002)
+        self.eq(tlib.getTypeNorm('inet:udp4', 0x010203040002)[0], 0x010203040002)
+
+        self.raises(BadTypeValu, tlib.getTypeParse, 'inet:udp4', 'newp')
+        self.eq(tlib.getTypeParse('inet:udp4', '1.2.3.4:2')[0], 0x010203040002)
+
+        self.eq(tlib.getTypeRepr('inet:udp4', 0x010203040002), '1.2.3.4:2')
+
+    def test_model_type_inet_port(self):
+        tlib = s_types.TypeLib()
+
+        self.raises(BadTypeValu, tlib.getTypeParse, 'inet:port', '70000')
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:port', 0xffffffff)
+
+        self.eq(tlib.getTypeNorm('inet:port', 20)[0], 20)
+
+    def test_model_type_inet_mac(self):
+        tlib = s_types.TypeLib()
+
+        self.raises(BadTypeValu, tlib.getTypeParse, 'inet:mac', 'newp')
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:mac', 'newp')
+
+        self.eq(tlib.getTypeNorm('inet:mac', 'FF:FF:FF:FF:FF:FF')[0], 'ff:ff:ff:ff:ff:ff')
+        self.eq(tlib.getTypeParse('inet:mac', 'FF:FF:FF:FF:FF:FF')[0], 'ff:ff:ff:ff:ff:ff')
+        self.eq(tlib.getTypeRepr('inet:mac', 'ff:ff:ff:ff:ff:ff'), 'ff:ff:ff:ff:ff:ff')
+
+    def test_model_type_inet_email(self):
+        tlib = s_types.TypeLib()
+
+        self.raises(BadTypeValu, tlib.getTypeParse, 'inet:email', 'newp')
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:email', 'newp')
+
+        self.eq(tlib.getTypeParse('inet:email', 'ViSi@Woot.Com')[0], 'visi@woot.com')
+
+        self.eq(tlib.getTypeNorm('inet:email', 'ViSi@Woot.Com')[0], 'visi@woot.com')
+
+        self.eq(tlib.getTypeRepr('inet:email', 'visi@woot.com'), 'visi@woot.com')
+
+    def test_model_type_inet_ipv6(self):
+        tlib = s_types.TypeLib()
+
+        self.raises(BadTypeValu, tlib.getTypeParse, 'inet:ipv6', 'newp')
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:srv6', 'newp')
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:srv6', '[fffffffffffffffffffffffff::2]:80')
+
+        self.eq(tlib.getTypeParse('inet:ipv6', 'AF:00::02')[0], 'af::2')
+        self.eq(tlib.getTypeNorm('inet:ipv6', 'AF:00::02')[0], 'af::2')
+        self.eq(tlib.getTypeRepr('inet:ipv6', 'af::2'), 'af::2')
+
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8::1:1:1:1:1')[0], '2001:db8:0:1:1:1:1:1')
+
+        # Specific examples given in RFC5952
+        # Section 1
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8:0:0:1:0:0:1')[0], '2001:db8::1:0:0:1')
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:0db8:0:0:1:0:0:1')[0], '2001:db8::1:0:0:1')
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8::1:0:0:1')[0], '2001:db8::1:0:0:1')
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8::0:1:0:0:1')[0], '2001:db8::1:0:0:1')
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:0db8::1:0:0:1')[0], '2001:db8::1:0:0:1')
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8:0:0:1::1')[0], '2001:db8::1:0:0:1')
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:DB8:0:0:1::1')[0], '2001:db8::1:0:0:1')
+
+        # Section 2.1
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:DB8:0:0:1:0000:0000:1')[0], '2001:db8::1:0:0:1')
+
+        # Section 2.2
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:ipv6', '::1::')
+
+        # Section 4.1
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:0db8::0001')[0], '2001:db8::1')
+
+        # Section 4.2.1
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8:0:0:0:0:2:1')[0], '2001:db8::2:1')
+
+        # Section 4.2.2
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8:0:1:1:1:1:1')[0], '2001:db8:0:1:1:1:1:1')
+
+        # Section 4.2.3
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:0:0:1:0:0:0:1')[0], '2001:0:0:1::1')
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8:0:0:1:0:0:1')[0], '2001:db8::1:0:0:1')
+
+        self.eq(tlib.getTypeNorm('inet:ipv6', '::ffff:1.2.3.4')[0], '::ffff:1.2.3.4')
+
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8::0:1')[0], '2001:db8::1')
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8:0:0:0:0:2:1')[0], '2001:db8::2:1')
+
+        self.eq(tlib.getTypeNorm('inet:ipv6', '2001:db8::')[0], '2001:db8::')
+
+        self.eq(tlib.getTypeRepr('inet:srv6', '[af::2]:80'), '[af::2]:80')
+        self.eq(tlib.getTypeParse('inet:srv6', '[AF:00::02]:80')[0], '[af::2]:80')
+        self.eq(tlib.getTypeNorm('inet:srv6', '[AF:00::02]:80')[0], '[af::2]:80')
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:srv6', '[AF:00::02]:999999')
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:srv6', '[AF:00::02]:-1')
+
+    def test_model_type_inet_cidr(self):
+        tlib = s_types.TypeLib()
+
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:cidr4', '1.2.3.0/33')
+        self.raises(BadTypeValu, tlib.getTypeNorm, 'inet:cidr4', '1.2.3.0/-1')
+
+        self.eq(tlib.getTypeNorm('inet:cidr4', '1.2.3.0/24'), ('1.2.3.0/24', {'ipv4': 16909056, 'mask': 24}))
+        self.eq(tlib.getTypeRepr('inet:cidr4', '1.2.3.0/24'), '1.2.3.0/24')
+
     def test_model_inet_email(self):
         with self.getRamCore() as core:
             t0 = core.formTufoByProp('inet:email', 'visi@vertex.link')
@@ -366,12 +507,12 @@ class InetModelTest(SynTest):
             self.none(node0[1].get('inet:web:post:repost'))
             self.none(node1[1].get('inet:web:post:repost'))
 
-            repiden = node1[0]
+            repost = node1[1].get('inet:web:post')
             node2 = core.formTufoByProp('inet:web:post', ('vertex.link/pennywise', 'whos there'),
-                                        time='201710091541', repost=node1[0])
+                                        time='201710091541', repost=repost)
             self.eq(node2[1].get('inet:web:post:acct'), 'vertex.link/pennywise')
             self.eq(node2[1].get('inet:web:post:text'), 'whos there')
-            self.eq(node2[1].get('inet:web:post:repost'), repiden)
+            self.eq(node2[1].get('inet:web:post:repost'), repost)
             self.none(node2[1].get('inet:web:replyto'))
 
     def test_model_inet_postref(self):
@@ -463,6 +604,14 @@ class InetModelTest(SynTest):
             self.eq(len(core.eval('inet:fqdn="woot.com"')), 1)
             self.eq(len(core.eval('inet:whois:rec="woot.com@20501217"')), 1)
             self.eq(len(core.eval('inet:whois:contact:rec="woot.com@20501217"')), 1)
+
+            props = {'url': 'http://woot.com/hehe', 'whois:fqdn': 'blah.com'}
+            node = core.formTufoByProp('inet:whois:contact', ('woot.com@2015', 'registrar'), **props)
+            self.eq(node[1].get('inet:whois:contact:url'), 'http://woot.com/hehe')
+            self.eq(node[1].get('inet:whois:contact:whois:fqdn'), 'blah.com')
+
+            self.nn(core.getTufoByProp('inet:fqdn', 'blah.com'))
+            self.nn(core.getTufoByProp('inet:url', 'http://woot.com/hehe'))
 
     def test_model_inet_whois_recns(self):
         with self.getRamCore() as core:
@@ -1363,10 +1512,35 @@ class InetModelTest(SynTest):
                 self.eq(tufo[1]['inet:web:acct'], 'vertex.link/pennywise2')
                 self.eq(tufo[1]['inet:web:acct:occupation'], 'entertainer')
 
+    def test_model_inet_addr(self):
+        with self.getRamCore() as core:
+
+            valu, subs = core.getTypeNorm('inet:addr', 'FF::56')
+
+            self.eq(valu, 'ff::56')
+            self.none(subs.get('ipv4'))
+
+            valu, subs = core.getTypeNorm('inet:addr', '1.2.3.4')
+
+            self.eq(valu, '::ffff:1.2.3.4')
+            self.eq(subs.get('ipv4'), 0x01020304)
+
+            nv, nsubs = core.getTypeNorm('inet:addr', '::ffff:1.2.3.4')
+            self.eq(valu, nv)
+            self.eq(subs, nsubs)
+
+            # These change when we move to using inet:addr instead of
+            self.raises(NoSuchForm, core.formTufoByProp, 'inet:addr', 0x01020304)
+            # self.nn(core.getTufoByProp('inet:addr:ipv4', '1.2.3.4'))
+
     def test_model_inet_wifi(self):
         with self.getRamCore() as core:
             node = core.formTufoByProp('inet:wifi:ssid', 'hehe haha')
             self.eq(node[1].get('inet:wifi:ssid'), 'hehe haha')
+
+            node = core.formTufoByProp('inet:wifi:ap', ('lololol', '01:02:03:04:05:06'))
+            self.eq(node[1].get('inet:wifi:ap:ssid'), 'lololol')
+            self.eq(node[1].get('inet:wifi:ap:bssid'), '01:02:03:04:05:06')
 
     def test_model_inet_iface(self):
 
@@ -1395,3 +1569,47 @@ class InetModelTest(SynTest):
             self.nn(core.getTufoByProp('inet:wifi:ssid', node[1].get('inet:iface:wifi:ssid')))
             self.nn(core.getTufoByProp('tel:mob:imei', node[1].get('inet:iface:mob:imei')))
             self.nn(core.getTufoByProp('tel:mob:imsi', node[1].get('inet:iface:mob:imsi')))
+
+    def test_model_inet_urlredir(self):
+
+        with self.getRamCore() as core:
+
+            node = core.formTufoByProp('inet:urlredir', ('http://foo.com/', 'http://bar.com/'))
+
+            self.nn(core.getTufoByProp('inet:url', 'http://foo.com/'))
+            self.nn(core.getTufoByProp('inet:url', 'http://bar.com/'))
+
+            self.eq(node[1].get('inet:urlredir:src'), 'http://foo.com/')
+            self.eq(node[1].get('inet:urlredir:src:fqdn'), 'foo.com')
+
+            self.eq(node[1].get('inet:urlredir:dst'), 'http://bar.com/')
+            self.eq(node[1].get('inet:urlredir:dst:fqdn'), 'bar.com')
+
+    def test_model_inet_rfc2822_addr(self):
+
+        with self.getRamCore() as core:
+
+            self.raises(BadTypeValu, core.formTufoByProp, 'inet:rfc2822:addr', 20)
+
+            n0 = core.formTufoByProp('inet:rfc2822:addr', 'FooBar')
+            n1 = core.formTufoByProp('inet:rfc2822:addr', 'visi@vertex.link')
+            n2 = core.formTufoByProp('inet:rfc2822:addr', 'foo bar<visi@vertex.link>')
+            n3 = core.formTufoByProp('inet:rfc2822:addr', 'foo bar <visi@vertex.link>')
+            n4 = core.formTufoByProp('inet:rfc2822:addr', '"foo bar "   <visi@vertex.link>')
+            n5 = core.formTufoByProp('inet:rfc2822:addr', '<visi@vertex.link>')
+
+            self.eq(n0[1].get('inet:rfc2822:addr'), 'foobar')
+            self.none(n0[1].get('inet:rfc2822:addr:name'))
+            self.none(n0[1].get('inet:rfc2822:addr:addr'))
+
+            self.eq(n1[1].get('inet:rfc2822:addr'), 'visi@vertex.link')
+            self.eq(n1[1].get('inet:rfc2822:addr:email'), 'visi@vertex.link')
+            self.none(n1[1].get('inet:rfc2822:addr:name'))
+
+            self.eq(n2[1].get('inet:rfc2822:addr'), 'foo bar <visi@vertex.link>')
+            self.eq(n2[1].get('inet:rfc2822:addr:name'), 'foo bar')
+            self.eq(n2[1].get('inet:rfc2822:addr:email'), 'visi@vertex.link')
+
+            self.eq(n2[0], n3[0])
+            self.eq(n2[0], n4[0])
+            self.eq(n1[0], n5[0])

@@ -4,24 +4,27 @@ from setuptools import setup, find_packages
 
 setup(
     name='synapse',
-    version='0.0.31',
+    version='0.0.43',
     description='Synapse Distributed Key-Value Hypergraph Analysis Framework',
     author='Invisigoth Kenshoto',
     author_email='invisigoth.kenshoto@gmail.com',
     url='https://github.com/vertexproject/synapse',
     license='Apache License 2.0',
 
-    packages=find_packages(exclude=['*.tests', '*.tests.*']),
+    packages=find_packages(exclude=['*.tests',
+                                    '*.tests.*',
+                                    'scripts',
+                                    ]),
 
     include_package_data=True,
 
     install_requires=[
         'tornado>=3.2.2',
-        'cryptography>=1.7.2',
         'pyOpenSSL>=16.2.0',
         'msgpack-python>=0.4.2',
         'xxhash>=1.0.1',
-        'lmdb>=0.92'
+        'lmdb>=0.92',
+        'regex>=2017.9.23'
     ],
 
     classifiers=[

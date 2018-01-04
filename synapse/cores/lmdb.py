@@ -15,10 +15,10 @@ import synapse.cores.common as s_cores_common
 import synapse.cores.storage as s_cores_storage
 
 import synapse.lib.threads as s_threads
+import synapse.lib.msgpack as s_msgpack
 
 import lmdb
 import xxhash
-import msgpack
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +48,13 @@ STRING_VAL_MARKER = -2
 HASH_VAL_MARKER = -3
 
 # The negative marker encoded
-NEGATIVE_VAL_MARKER_ENC = s_common.msgenpack(NEGATIVE_VAL_MARKER)
+NEGATIVE_VAL_MARKER_ENC = s_msgpack.en(NEGATIVE_VAL_MARKER)
 
 # The string marker encoded
-STRING_VAL_MARKER_ENC = s_common.msgenpack(STRING_VAL_MARKER)
+STRING_VAL_MARKER_ENC = s_msgpack.en(STRING_VAL_MARKER)
 
 # The hash marker encoded
-HASH_VAL_MARKER_ENC = s_common.msgenpack(HASH_VAL_MARKER)
+HASH_VAL_MARKER_ENC = s_msgpack.en(HASH_VAL_MARKER)
 
 # Number of bytes in a UUID
 UUID_SIZE = 16
@@ -74,7 +74,7 @@ MAX_INT_VAL = 2 ** 63 - 1
 MIN_INT_VAL = -1 * (2 ** 63)
 
 # The maximum possible timestamp.  Probably a bit overkill
-MAX_TIME_ENC = s_common.msgenpack(MAX_INT_VAL)
+MAX_TIME_ENC = s_msgpack.en(MAX_INT_VAL)
 
 # Index Names
 BLOB_STORE = b'blob_store'
@@ -98,14 +98,14 @@ def _encValKey(v):
     '''
     if isinstance(v, int):
         if v >= 0:
-            return s_common.msgenpack(v)
+            return s_msgpack.en(v)
         else:
-            return NEGATIVE_VAL_MARKER_ENC + s_common.msgenpack(-v)
+            return NEGATIVE_VAL_MARKER_ENC + s_msgpack.en(-v)
     else:
         if len(v) >= LARGE_STRING_SIZE:
-            return (HASH_VAL_MARKER_ENC + s_common.msgenpack(xxhash.xxh64(v).intdigest()))
+            return (HASH_VAL_MARKER_ENC + s_msgpack.en(xxhash.xxh64(v).intdigest()))
         else:
-            return STRING_VAL_MARKER_ENC + s_common.msgenpack(v)
+            return STRING_VAL_MARKER_ENC + s_msgpack.en(v)
 
 # Really just want to memoize the last iden encoded, but there might be some multithreading, so keep
 # a few more (8)
@@ -117,7 +117,7 @@ def _encIden(iden):
 # Try to memoize most of the prop names we get
 @functools.lru_cache(maxsize=1024)
 def _encProp(prop):
-    return msgpack.dumps(prop, encoding='utf-8')
+    return s_msgpack.en(prop)
 
 # The precompiled struct parser for native size_t
 _SIZET_ST = struct.Struct('@Q' if sys.maxsize > 2**32 else '@L')
@@ -140,8 +140,8 @@ def _calcFirstLastKeys(prop, valu, mintime, maxtime):
     v_is_hashed = valu is not None and (v_key_enc[0] == HASH_VAL_MARKER_ENC)
     if mintime is None and maxtime is None:
         return (p_enc + v_key_enc, None, v_is_hashed, True)
-    mintime_enc = b'' if mintime is None else s_common.msgenpack(mintime)
-    maxtime_enc = MAX_TIME_ENC if maxtime is None else s_common.msgenpack(maxtime)
+    mintime_enc = b'' if mintime is None else s_msgpack.en(mintime)
+    maxtime_enc = MAX_TIME_ENC if maxtime is None else s_msgpack.en(maxtime)
 
     first_key = p_enc + v_key_enc + mintime_enc
     last_key = p_enc + v_key_enc + maxtime_enc
@@ -432,9 +432,9 @@ class LmdbStorage(s_cores_storage.Storage):
                 i_enc = _encIden(i)
                 p_enc = _encProp(p)
                 v_key_enc = _encValKey(v)
-                t_enc = s_common.msgenpack(t)
+                t_enc = s_msgpack.en(t)
                 pk_enc = _encPk(next_pk)
-                row_enc = s_common.msgenpack((i, p, v, t))
+                row_enc = s_msgpack.en((i, p, v, t))
 
                 # idx          0      1       2       3       4          5
                 encs.append((i_enc, p_enc, row_enc, t_enc, v_key_enc, pk_enc))
@@ -465,7 +465,7 @@ class LmdbStorage(s_cores_storage.Storage):
         row = txn.get(pk_enc, db=self.rows)
         if row is None:
             raise s_common.BadCoreStore(store='lmdb', mesg='Index val has no corresponding row')
-        return s_common.msgunpack(row)
+        return s_msgpack.un(row)
 
     def getRowsById(self, iden):
         iden_enc = _encIden(iden)
@@ -535,7 +535,7 @@ class LmdbStorage(s_cores_storage.Storage):
         with txn.cursor(self.rows) as cursor:
             if not cursor.set_key(pk_enc):
                 raise s_common.BadCoreStore(store='lmdb', mesg='Missing PK')
-            i, p, v, t = s_common.msgunpack(cursor.value())
+            i, p, v, t = s_msgpack.un(cursor.value())
 
             if only_if_val is not None and only_if_val != v:
                 return False
@@ -551,7 +551,7 @@ class LmdbStorage(s_cores_storage.Storage):
             v_key_enc = _encValKey(v)
 
         if (delete_pvt or delete_pt) and t_enc is None:
-            t_enc = s_common.msgenpack(t)
+            t_enc = s_msgpack.en(t)
 
         if delete_ip:
             # Delete I-P index entry
@@ -606,6 +606,8 @@ class LmdbStorage(s_cores_storage.Storage):
             if not cursor.set_range(first_key):
                 raise s_common.BadCoreStore(store='lmdb', mesg='Missing sentinel')
             while True:
+                if limit is not None and count >= limit:
+                    break
                 key, pk_enc = cursor.item()
                 if do_fast_compare:
                     if key[:len(first_key)] != first_key:
@@ -621,8 +623,6 @@ class LmdbStorage(s_cores_storage.Storage):
                     if not do_count_only:
                         rows.append(row)
                 count += 1
-                if limit is not None and count >= limit:
-                    break
                 if not cursor.next():
                     raise s_common.BadCoreStore(store='lmdb', mesg='Missing sentinel')
 
@@ -753,11 +753,12 @@ class LmdbStorage(s_cores_storage.Storage):
             for key, value in it:
                 if term_cmp(key[:len(last_key)].tobytes(), last_key):
                     break
-                count += 1
-                if not do_count_only:
-                    ret.append(self._getRowByPkValEnc(txn, value))
                 if limit is not None and count >= limit:
                     break
+                if not do_count_only:
+                    ret.append(self._getRowByPkValEnc(txn, value))
+                count += 1
+
         return count if do_count_only else ret
 
     def _genStoreRows(self, **kwargs):
@@ -770,7 +771,7 @@ class LmdbStorage(s_cores_storage.Storage):
                 while True:
                     rows = []
                     for row in gen:
-                        row = s_common.msgunpack(row)
+                        row = s_msgpack.un(row)
                         rows.append(row)
                         if len(rows) == gsize:
                             break
@@ -784,13 +785,13 @@ class LmdbStorage(s_cores_storage.Storage):
         return 'lmdb'
 
     def _getBlobValu(self, key):
-        key_byts = s_common.msgenpack(key.encode('utf-8'))
+        key_byts = s_msgpack.en(key.encode('utf-8'))
         with self._getTxn() as txn:  # type: lmdb.Transaction
             ret = txn.get(key_byts, default=None, db=self.blob_store)
         return ret
 
     def _setBlobValu(self, key, valu):
-        key_byts = s_common.msgenpack(key.encode('utf-8'))
+        key_byts = s_msgpack.en(key.encode('utf-8'))
         with self._getTxn(write=True) as txn:  # type: lmdb.Transaction
             txn.put(key_byts, valu, overwrite=True, db=self.blob_store)
 
@@ -801,7 +802,7 @@ class LmdbStorage(s_cores_storage.Storage):
         return True
 
     def _delBlobValu(self, key):
-        key_byts = s_common.msgenpack(key.encode('utf-8'))
+        key_byts = s_msgpack.en(key.encode('utf-8'))
         with self._getTxn(write=True) as txn:  # type: lmdb.Transaction
             ret = txn.pop(key_byts, db=self.blob_store)
 
@@ -814,5 +815,5 @@ class LmdbStorage(s_cores_storage.Storage):
         with self._getTxn(write=True) as txn:  # type: lmdb.Transaction
             cur = txn.cursor(self.blob_store)  # type: lmdb.Cursor
             cur.first()
-            ret = [s_common.msgunpack(key).decode('utf-8') for key in cur.iternext(values=False)]
+            ret = [s_msgpack.un(key).decode('utf-8') for key in cur.iternext(values=False)]
         return ret

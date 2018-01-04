@@ -1,4 +1,5 @@
 import time
+import logging
 import traceback
 import threading
 
@@ -9,6 +10,8 @@ import synapse.lib.scope as s_scope
 import synapse.lib.threads as s_threads
 
 from synapse.eventbus import EventBus
+
+logger = logging.getLogger(__name__)
 
 def jobid():
     return s_common.guid()
@@ -263,7 +266,7 @@ class Boss(EventBus):
                 try:
                     ondone(job)
                 except Exception as e:
-                    traceback.print_exc()
+                    logger.exception('Error executing ondone for jid %s', jid)
 
             evt = joblocal.get('waitevt')
             if evt is not None:

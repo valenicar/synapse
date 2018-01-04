@@ -1,11 +1,11 @@
 import io
 import os
-import re
 import sys
 import json
 import time
 import types
 import base64
+import fnmatch
 import hashlib
 import builtins
 import functools
@@ -16,11 +16,13 @@ import collections
 
 from binascii import hexlify
 
+import regex
+
 import synapse.exc as s_exc
 
 from synapse.exc import *
 
-import msgpack
+import synapse.lib.msgpack as s_msgpack
 
 major = sys.version_info.major
 minor = sys.version_info.minor
@@ -67,10 +69,10 @@ def guid(valu=None):
     if valu is None:
         return hexlify(os.urandom(16)).decode('utf8')
     # Generate a "stable" guid from the given item
-    byts = msgenpack(valu)
+    byts = s_msgpack.en(valu)
     return hashlib.md5(byts).hexdigest()
 
-guidre = re.compile('^[0-9a-f]{32}$')
+guidre = regex.compile('^[0-9a-f]{32}$')
 def isguid(text):
     return guidre.match(text) is not None
 
@@ -101,17 +103,6 @@ def tufo(typ, **kwargs):
 def splice(act, **info):
     info['act'] = act
     return ('splice', info)
-
-def msgenpack(obj):
-    return msgpack.dumps(obj, use_bin_type=True, encoding='utf8')
-
-def msgunpack(byts):
-    return msgpack.loads(byts, use_list=False, encoding='utf8')
-
-def msgpackfd(fd):
-    unpk = msgpack.Unpacker(fd, use_list=False, encoding='utf8')
-    for mesg in unpk:
-        yield mesg
 
 def vertup(vstr):
     '''
@@ -200,12 +191,39 @@ def reqbytes(*paths):
 def genfile(*paths):
     '''
     Create or open ( for read/write ) a file path join.
+
+    Args:
+        *paths: A list of paths to join together to make the file.
+
+    Notes:
+        If the file already exists, the fd returned is opened in ``r+b`` mode.
+        Otherwise, the fd is opened in ``w+b`` mode.
+
+    Returns:
+        io.BufferedRandom: A file-object which can be read/written too.
     '''
     path = genpath(*paths)
     gendir(os.path.dirname(path))
     if not os.path.isfile(path):
         return io.open(path, 'w+b')
     return io.open(path, 'r+b')
+
+def listdir(*paths, glob=None):
+    '''
+    List the (optionally glob filtered) full paths from a dir.
+
+    Args:
+        *paths ([str,...]): A list of path elements
+        glob (str): An optional fnmatch glob str
+    '''
+    path = genpath(*paths)
+
+    names = os.listdir(path)
+    if glob is not None:
+        names = fnmatch.filter(names, glob)
+
+    retn = [os.path.join(path, name) for name in names]
+    return retn
 
 def gendir(*paths, **opts):
     mode = opts.get('mode', 0o700)
@@ -234,7 +252,7 @@ def gentask(func, *args, **kwargs):
 def jssave(js, *paths):
     path = genpath(*paths)
     with io.open(path, 'wb') as fd:
-        fd.write(json.dumps(js).encode('utf8'))
+        fd.write(json.dumps(js, sort_keys=True, indent=2).encode('utf8'))
 
 def verstr(vtup):
     '''

@@ -1,11 +1,12 @@
 '''
 An API to assist with the creation and enforcement of cortex data models.
 '''
-import re
 import fnmatch
 import functools
 import collections
 import logging
+
+import regex
 
 import synapse.common as s_common
 
@@ -14,8 +15,8 @@ import synapse.lib.types as s_types
 
 logger = logging.getLogger(__name__)
 
-hexre = re.compile('^[0-9a-z]+$')
-propre = re.compile('^[0-9a-z:_]+$')
+hexre = regex.compile('^[0-9a-z]+$')
+propre = regex.compile('^[0-9a-z:_]+$')
 
 tlib = s_types.TypeLib()
 
@@ -104,6 +105,10 @@ class DataModel(s_types.TypeLib):
         self.subprops = collections.defaultdict(list)
         self.propsbytype = collections.defaultdict(list)
         self.propsdtyp = {}
+        self.uniprops = set()
+        self.unipropsreq = set()
+
+        self._type_hooks = collections.defaultdict(list)
 
         self.globs = []
         self.cache = {} # for globs
@@ -116,6 +121,33 @@ class DataModel(s_types.TypeLib):
         }
 
         s_types.TypeLib.__init__(self, load=load)
+        self._initUniversalProps()
+
+    def _initUniversalProps(self):
+        '''
+        Initialize universal properties in the DataModel.
+        These properties are not bound to a specific form and may be present on a node.
+        '''
+        self.addPropDef('tufo:form',
+                        ptype='str',
+                        doc='The form of the node',
+                        ro=1,
+                        req=1,
+                        univ=1,
+                        )
+        self.addPropDef('node:created',
+                        ptype='time',
+                        doc='The time the node was created',
+                        ro=1,
+                        req=1,
+                        univ=1,
+                        )
+        self.addPropDef('node:ndef',
+                        ptype='ndef',
+                        doc='The unique guid representing the combination of the node form and primary property.',
+                        ro=1,
+                        req=1,
+                        univ=1)
 
     def getModelDict(self):
         '''
@@ -167,15 +199,47 @@ class DataModel(s_types.TypeLib):
 
     def isTufoForm(self, name):
         '''
-        Returns True if the given name is a form.
+        Check if a form is a valid form.
+
+        Args:
+            name (str): Form to check
+
+        Returns:
+            bool: True if the form is a valid form. False otherwise.
         '''
         return name in self.forms
 
+    def reqTufoForm(self, name):
+        '''
+        Check if a form is a valid form, raise an exception otherwise.
+
+        Args:
+            name (str): Form to check
+
+        Raises:
+            NoSuchForm: If the form does not exist in the datamodel.
+        '''
+        ret = self.isTufoForm(name)
+        if not ret:
+            raise s_common.NoSuchForm(name=name)
+
     def getTufoForms(self):
         '''
-        Return a list of the tufo forms.
+        Get a list of the currently loaded tufo forms.
+
+        Returns:
+            list: List of forms.
         '''
         return list(self.forms)
+
+    def getUnivProps(self):
+        '''
+        Get a list of the universal tufo props.
+
+        Returns:
+            list: List of universal tufo props
+        '''
+        return list(self.uniprops)
 
     def addTufoProp(self, form, prop, **info):
         '''
@@ -230,10 +294,12 @@ class DataModel(s_types.TypeLib):
 
             model.addPropDef('foo:bar', ptype='int', defval=30)
 
+        Returns:
+            ((str, dict)): Retuns the prop, property definition tuple.
+
         Raises:
-
             DupPropName: If the property name is already present in the data model.
-
+            BadPropConf: If the propety has an invalid configuration.
         '''
         if self.props.get(prop) is not None:
             raise s_common.DupPropName(name=prop)
@@ -243,11 +309,18 @@ class DataModel(s_types.TypeLib):
         info.setdefault('req', False)
         info.setdefault('title', self.getTypeInfo(info.get('ptype'), 'title', ''))
         info.setdefault('defval', None)
+        info.setdefault('univ', False)
 
+        univ = info.get('univ')
         form = info.get('form')
-        relname = prop[len(form) + 1:]
-        if relname:
-            info['relname'] = relname
+        if form and univ:
+            raise s_common.BadPropConf(mesg='Universal props cannot be set on forms.',
+                                       prop=prop, form=form,)
+        relname = None
+        if form:
+            relname = prop[len(form) + 1:]
+            if relname:
+                info['relname'] = relname
 
         if ':' in prop:
             _, base = prop.rsplit(':', 1)
@@ -272,11 +345,45 @@ class DataModel(s_types.TypeLib):
             self.propsdtyp[prop] = pdtyp
 
         self.props[prop] = pdef
-        self.props[(form, relname)] = pdef
+        if relname:
+            self.props[(form, relname)] = pdef
 
         self.model['props'][prop] = pdef
 
+        if univ:
+            self.uniprops.add(prop)
+            if info.get('req'):
+                self.unipropsreq.add(prop)
+
         self._addSubRefs(pdef)
+
+        if ptype is not None:
+            for func in self._type_hooks.get(ptype, ()):
+                func(pdef)
+
+        return pdef
+
+    def addPropTypeHook(self, name, func):
+        '''
+        Add a callback function for props declared from a given type.
+
+        Args:
+            name (str): The name of a type to hook props
+            func (function): A function callback
+
+        Example:
+            def func(pdef):
+                dostuff(pdef)
+
+            modl.addPropTypeHook('foo:bar', func)
+
+        NOTE: This will be called immediately for existing props and
+              incrementally as future props are declared using the type.
+        '''
+        for pdef in self.propsbytype.get(name, ()):
+            func(pdef)
+
+        self._type_hooks[name].append(func)
 
     def getFormDefs(self, form):
         '''

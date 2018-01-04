@@ -298,6 +298,7 @@ class DataModelTest(SynTest):
                               'defval': None,
                               'ptype': 'int',
                               'doc': 'The base integer type',
+                              'univ': False,
                               }
                  )
                 )
@@ -383,3 +384,41 @@ class DataModelTest(SynTest):
             v, _ = core.reqPropNorm('strform:foo', '1')
             self.eq(v, '1')
             self.raises(NoSuchProp, core.reqPropNorm, 'strform:beepbeep', '1')
+
+    def test_datamodel_istufoform(self):
+        modl = s_datamodel.DataModel()
+        self.true(modl.isTufoForm('file:bytes'))
+        self.false(modl.isTufoForm('file:bytes:size'))
+        self.false(modl.isTufoForm('node:ndef'))
+
+        self.none(modl.reqTufoForm('file:bytes'))
+        self.raises(NoSuchForm, modl.reqTufoForm, 'file:bytes:size')
+
+    def test_datamodel_cast_json(self):
+        modl = s_datamodel.DataModel()
+        self.eq(modl.getTypeCast('make:json', 1), '1')
+        self.eq(modl.getTypeCast('make:json', 'hehe'), '"hehe"')
+        self.eq(modl.getTypeCast('make:json', '"hehe"'), '"\\"hehe\\""')
+        self.eq(modl.getTypeCast('make:json', {"z": 1, 'yo': 'dawg', }), '{"yo":"dawg","z":1}')
+
+    def test_datamodel_cast_int10(self):
+        modl = s_datamodel.DataModel()
+        self.eq(modl.getTypeCast('int:2:str10', 1), '1')
+        self.eq(modl.getTypeCast('int:2:str10', 100), '100')
+        self.eq(modl.getTypeCast('int:2:str10', 0x11), '17')
+        self.eq(modl.getTypeCast('int:2:str10', 'hehe'), 'hehe')
+
+    def test_datamodel_type_hook(self):
+        defs = []
+        modl = s_datamodel.DataModel()
+        modl.addType('gronk', subof='guid')
+        modl.addPropDef('foo:bar', ptype='gronk')
+        modl.addPropTypeHook('gronk', defs.append)
+
+        self.len(1, defs)
+        self.eq(defs[0][0], 'foo:bar')
+
+        modl.addPropDef('foo:baz', ptype='gronk')
+
+        self.len(2, defs)
+        self.eq(defs[1][0], 'foo:baz')

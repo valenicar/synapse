@@ -17,6 +17,10 @@ class SynMod(CoreModule):
                 ('syn:auth:role', {'subof': 'str'}),
                 ('syn:auth:userrole', {'subof': 'comp', 'fields': 'user=syn:auth:user,role=syn:auth:role'}),
                 ('syn:tagform', {'subof': 'comp', 'fields': 'tag,syn:tag|form,syn:prop', 'ex': '(foo.bar,baz:faz)'}),
+
+                ('syn:alias', {'subof': 'str', 'regex': r'^\$[a-z_]+$',
+                    'doc': 'A synapse guid alias', 'ex': '$visi'}),
+
             ),
 
             'forms': (
@@ -30,6 +34,11 @@ class SynMod(CoreModule):
                     ('tag', {'ptype': 'str:lwr'}),
                     ('form', {'ptype': 'str:lwr'}),
                     ('valu', {'ptype': 'str:lwr'}),
+                )),
+
+                ('syn:alias', {'local': 1}, (
+                    ('iden', {'ptype': 'guid', 'defval': '*',
+                        'doc': 'The GUID for the given alias name'}),
                 )),
 
                 ('syn:auth:user', {'local': 1}, (
@@ -46,6 +55,11 @@ class SynMod(CoreModule):
                 ('syn:auth:userrole', {'local': 1}, (
                     ('user', {'ptype': 'syn:auth:user'}),
                     ('role', {'ptype': 'syn:auth:role'}),
+                )),
+
+                ('syn:fifo', {'ptype': 'guid', 'local': 1}, (
+                    ('name', {'ptype': 'str', 'doc': 'The name of this fifo'}),
+                    ('desc', {'ptype': 'str', 'doc': 'The fifo description'}),
                 )),
 
                 ('syn:trigger', {'ptype': 'guid', 'local': 1}, (
@@ -74,6 +88,8 @@ class SynMod(CoreModule):
                     ('base', {'ptype': 'str', 'doc': 'Base name of the property'}),
                     ('glob', {'ptype': 'bool', 'defval': 0, 'doc': 'Set to 1 if this property defines a glob'}),
                     ('defval', {'doc': 'Set to the default value for this property', 'glob': 1}),
+                    ('univ', {'ptype': 'bool',
+                              'doc': 'Specifies if a prop is universal and has no form associated with it.'}),
                 )),
                 ('syn:type', {'doc': 'The base type type.'}, (
                     ('ctor', {'ptype': 'str', 'doc': 'Python path to the class used to instantiate the type.'}),
@@ -197,3 +213,29 @@ class SynMod(CoreModule):
                     i = i + len(chunk)
                     logger.debug('Loading {:,d} [{}%] rows into transaction'.format(i, int((i / tot) * 100)))
         logger.debug('Finished adding node:created rows to the Cortex')
+
+    @modelrev('syn', 201711012123)
+    def _revModl201711012123(self):
+        now = s_common.now()
+        forms = sorted(self.core.getTufoForms())
+        nforms = len(forms)
+        for n, form in enumerate(forms):
+            adds = []
+            logger.debug('Computing node:ndef rows for [{}]'.format(form))
+            for i, p, v, t in self.core.store.getRowsByProp(form):
+                # This is quicker than going through the norm process
+                nv = s_common.guid((p, v))
+                adds.append((i, 'node:ndef', nv, now))
+
+            if adds:
+                tot = len(adds)
+                logger.debug('Adding {:,d} node:ndef rows for [{}]'.format(tot, form))
+                with self.core.getCoreXact() as xact:
+                    i = 0
+                    nt = 100000
+                    for chunk in s_common.chunks(adds, nt):
+                        self.core.store.addRows(chunk)
+                        i = i + len(chunk)
+                        logger.debug('Loading {:,d} [{}%] rows into transaction'.format(i, int((i / tot) * 100)))
+            logger.debug('Processed {:,d} [{}%] forms.'.format(n, int((n / nforms) * 100)))
+        logger.debug('Finished adding node:ndef rows to the Cortex')
