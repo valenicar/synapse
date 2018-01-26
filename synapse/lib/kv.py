@@ -109,6 +109,13 @@ class KvLook:
 
         return s_msgpack.un(lval)
 
+    def items(self):
+        size = len(self.iden)
+        for lkey, lval in self.stor.iterKvProps(self.iden):
+            prop = lkey[size:].decode('utf8')
+            valu = s_msgpack.un(lval)
+            yield prop, valu
+
     def getraw(self, lkey):
         return self.stor.getKvProp(self.iden + lkey)
 
