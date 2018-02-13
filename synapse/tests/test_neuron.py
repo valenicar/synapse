@@ -12,16 +12,29 @@ class TstCell(s_neuron.Cell):
 
     def postCell(self):
         self._counter = 0
+        self._chunksize = 10
+        self._timeout = 30
 
     def handlers(self):
         return {
             'cell:ping': self._onCellPing,
             'cell:pong': self._onCellPong,
+            'cell:range': self._onCellRange,
         }
 
     def _onCellPong(self, chan, mesg):
         self._counter += 1
         chan.txfini(data={'mesg': 'pong', 'counter': self._counter})
+
+    def _onCellRange(self, chan, mesg):
+        defval = 10
+        valu = mesg[1].get('data', defval)
+
+        for v in range(valu):
+            time.sleep(random.randint(0, 1) * 1)
+            logger.info('txing {}'.format(v))
+            chan.tx(v)
+        chan.txfini()
 
 class NeuronTest(SynTest):
 
@@ -183,6 +196,22 @@ class NeuronTest(SynTest):
 
                     retn = sess.call(('cell:ping', {'data': 'rofl'}), timeout=2)
                     self.eq(retn, 'rofl')
+
+    def test_neuron_cell_iter(self):
+
+        with self.getTestDir() as dirn:
+            conf = {'host': '127.0.0.1'}
+
+            with TstCell(dirn, conf) as cell:
+                port = cell.getCellPort()
+                auth = cell.genUserAuth('visi@vertex.link')
+                user = s_neuron.CellUser(auth)
+                addr = ('127.0.0.1', port)
+
+                with user.open(addr, timeout=2) as sess:
+                    gen = sess.iter(('cell:range', {'data': 20}), timeout=20)
+                    vals = [v for v in gen]
+                    self.eq(vals, [v for v in range(20)])
 
     def test_cell_getcellctor(self):
         with self.getTestDir() as dirn:

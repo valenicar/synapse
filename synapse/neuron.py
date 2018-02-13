@@ -424,8 +424,8 @@ class UserSess(Sess):
         Access a Cell endpoint that uses the iter convention.
         '''
         with self.task(mesg, timeout=timeout) as chan:
-            for item in chan.iter():
-                chan.tx(True)
+            for item in chan.iter(timeout=timeout):
+                logger.info('yielding {}'.format(item))
                 yield item
 
     def task(self, mesg=None, timeout=None):
