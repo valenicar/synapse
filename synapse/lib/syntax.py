@@ -22,7 +22,7 @@ tagfilt = varset.union({'#', '*'})
 alphaset = set('abcdefghijklmnopqrstuvwxyz')
 
 # this may be used to meh() potentially unquoted values
-valmeh = whites.union({'(', ')', '=', ',', '[', ']','{','}'})
+valmeh = whites.union({'(', ')', '=', ',', '[', ']', '{', '}'})
 
 def nom(txt, off, cset, trim=True):
     '''
@@ -863,8 +863,6 @@ def parse_storm(text, off=0):
         # only macro lift syntax remains
         inst, off = parse_macro_lift(text, origoff)
         ret.append(inst)
-
-    #[ i[1]['kwlist'].sort() for i in ret ]
 
     return ret, off
 
