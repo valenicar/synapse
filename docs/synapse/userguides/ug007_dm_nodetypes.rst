@@ -14,7 +14,7 @@ Even for simple nodes, it may still be possible (and desirable) to break the nod
 In cases where these paresed secondary properties are themselves forms, Synapse will also automatically create nodes for those forms if they do not already exist. For example, for an ``inet:fqdn`` node, secondary properties include the ``inet:fqdn:host`` (the hostname of the fqdn, stored as a string) and ``inet:fqdn:domain`` (the parent fqdn of the fqdn, which is also an ``inet:fqdn`` form.). If you create the node ``inet:fqdn=foo.woot.com``, Synapse will create:
 
 - an ``inet:fqdn`` node for ``foo.woot.com``.
-- secondary proeprties ``inet:fqdn:host=foo`` and ``inet:fqdn:domain=woot.com`` (these do not need to be manually defined when creating the node).
+- secondary properties ``inet:fqdn:host=foo`` and ``inet:fqdn:domain=woot.com`` (these do not need to be manually defined when creating the node).
 - an additional ``inet:fqdn`` node for ``woot.com``, if it does not already exist in the Cortex.
 
 Examples of simple nodes include:
